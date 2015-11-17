@@ -49,6 +49,7 @@ DIRS-$(CONFIG_RTE_LIBRTE_PMD_RING) += ring
 DIRS-$(CONFIG_RTE_LIBRTE_VIRTIO_PMD) += virtio
 DIRS-$(CONFIG_RTE_LIBRTE_VMXNET3_PMD) += vmxnet3
 DIRS-$(CONFIG_RTE_LIBRTE_PMD_XENVIRT) += xenvirt
+DIRS-$(CONFIG_RTE_LIBRTE_MLNX_UIO_PMD) += mlnx_uio
 
 include $(RTE_SDK)/mk/rte.sharelib.mk
 include $(RTE_SDK)/mk/rte.subdir.mk

@@ -111,7 +111,7 @@ void* rte_persistent_alloc(size_t size, int socket)
 		if(found)
 		{
 			int offset = found - start;
-			found_buffer = persistent_allocated_memory[socket][k];
+			found_buffer = persistent_allocated_memory[socket][k-l_start];
 			assert(found_buffer);
 			found_buffer = RTE_PTR_ADD(found_buffer, ALLOC_UNIT*offset);
 			int j;
