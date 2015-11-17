@@ -209,6 +209,7 @@ struct rte_pci_driver {
 	pci_devuninit_t *devuninit;             /**< Device uninit function. */
 	const struct rte_pci_id *id_table;	/**< ID table, NULL terminated. */
 	uint32_t drv_flags;                     /**< Flags contolling handling of device. */
+	void* priv; /**< Private data. */
 };
 
 /** Device needs PCI BAR mapping (done with either IGB_UIO or VFIO) */

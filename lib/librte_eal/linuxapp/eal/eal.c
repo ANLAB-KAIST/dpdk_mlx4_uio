@@ -75,6 +75,10 @@
 #include <rte_atomic.h>
 #include <malloc_heap.h>
 
+#ifdef RTE_EAL_PERSISTENT_MEM
+#include <rte_persistent_mem.h>
+#endif
+
 #include "eal_private.h"
 #include "eal_thread.h"
 #include "eal_internal_cfg.h"
@@ -753,6 +757,11 @@ rte_eal_init(int argc, char **argv)
 	fctret = eal_parse_args(argc, argv);
 	if (fctret < 0)
 		exit(1);
+
+#ifdef RTE_EAL_PERSISTENT_MEM
+	if (rte_persistent_memory_init() < 0)
+		rte_panic("Cannot init persistent memory\n");
+#endif
 
 	if (internal_config.no_hugetlbfs == 0 &&
 			internal_config.process_type != RTE_PROC_SECONDARY &&

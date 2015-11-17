@@ -42,6 +42,10 @@ INC += rte_hexdump.h rte_devargs.h rte_dev.h
 INC += rte_pci_dev_feature_defs.h rte_pci_dev_features.h
 INC += rte_malloc.h rte_time.h
 
+ifeq ($(CONFIG_RTE_EAL_PERSISTENT_MEM),y)
+INC += rte_persistent_mem.h
+endif
+
 ifeq ($(CONFIG_RTE_INSECURE_FUNCTION_WARNING),y)
 INC += rte_warnings.h
 endif

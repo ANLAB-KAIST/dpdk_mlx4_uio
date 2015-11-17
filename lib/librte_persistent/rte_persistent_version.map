@@ -1,0 +1,11 @@
+DPDK_2.0 {
+	global:
+
+	rte_persistent_init;
+	rte_persistent_alloc;
+	rte_persistent_hw_addr;
+	rte_persistent_free;
+	rte_persistent_mem_length;
+
+	local: *;
+};

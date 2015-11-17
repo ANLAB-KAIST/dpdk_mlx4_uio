@@ -69,6 +69,11 @@ ifeq ($(CONFIG_RTE_LIBRTE_IVSHMEM),y)
 SRCS-$(CONFIG_RTE_LIBRTE_EAL_LINUXAPP) += eal_ivshmem.c
 endif
 
+ifeq ($(CONFIG_RTE_EAL_PERSISTENT_MEM),y)
+SRCS-$(CONFIG_RTE_LIBRTE_EAL_LINUXAPP) += eal_persistent_mem.c
+endif
+
+
 # from common dir
 SRCS-$(CONFIG_RTE_LIBRTE_EAL_LINUXAPP) += eal_common_lcore.c
 SRCS-$(CONFIG_RTE_LIBRTE_EAL_LINUXAPP) += eal_common_timer.c
@@ -115,6 +120,10 @@ CFLAGS_eal_thread.o += -Wno-return-type
 endif
 
 INC := rte_interrupts.h rte_kni_common.h rte_dom0_common.h
+
+ifeq ($(CONFIG_RTE_EAL_PERSISTENT_MEM),y)
+INC += rte_persistent_mem.h
+endif
 
 SYMLINK-$(CONFIG_RTE_LIBRTE_EAL_LINUXAPP)-include/exec-env := \
 	$(addprefix include/exec-env/,$(INC))

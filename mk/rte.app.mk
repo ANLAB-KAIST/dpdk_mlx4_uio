@@ -71,6 +71,10 @@ _LDLIBS-$(CONFIG_RTE_LIBRTE_KNI)            += -lrte_kni
 _LDLIBS-$(CONFIG_RTE_LIBRTE_IVSHMEM)        += -lrte_ivshmem
 endif
 
+ifeq ($(CONFIG_RTE_EAL_PERSISTENT_MEM),y)
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PERSISTENT)        += -lrte_persistent
+endif
+
 _LDLIBS-$(CONFIG_RTE_LIBRTE_PIPELINE)       += -lrte_pipeline
 _LDLIBS-$(CONFIG_RTE_LIBRTE_TABLE)          += -lrte_table
 _LDLIBS-$(CONFIG_RTE_LIBRTE_PORT)           += -lrte_port
@@ -91,6 +95,8 @@ _LDLIBS-$(CONFIG_RTE_LIBRTE_VHOST)          += -lrte_vhost
 endif # ! CONFIG_RTE_BUILD_COMBINE_LIBS
 
 _LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_PCAP)       += -lpcap
+
+_LDLIBS-$(CONFIG_RTE_EAL_PERSISTENT_MEM)       += -lnuma
 
 ifeq ($(CONFIG_RTE_LIBRTE_VHOST_NUMA),y)
 _LDLIBS-$(CONFIG_RTE_LIBRTE_VHOST)          += -lnuma
@@ -147,6 +153,7 @@ _LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_RING)       += -lrte_pmd_ring
 _LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_PCAP)       += -lrte_pmd_pcap
 _LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_AF_PACKET)  += -lrte_pmd_af_packet
 _LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_NULL)       += -lrte_pmd_null
+_LDLIBS-$(CONFIG_RTE_LIBRTE_MLNX_UIO_PMD)   += -lrte_pmd_mlnx_uio
 
 endif # ! $(CONFIG_RTE_BUILD_SHARED_LIB)
 

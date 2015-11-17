@@ -1,6 +1,6 @@
 #   BSD LICENSE
 #
-#   Copyright(c) 2010-2015 Intel Corporation. All rights reserved.
+#   Copyright(c) 2010-2014 Intel Corporation. All rights reserved.
 #   All rights reserved.
 #
 #   Redistribution and use in source and binary forms, with or without
@@ -28,40 +28,29 @@
 #   THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 #   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
 
-include $(RTE_SDK)/mk/rte.vars.mk
+#include "common_linuxapp"
 
-DIRS-y += librte_compat
-DIRS-$(CONFIG_RTE_LIBRTE_EAL) += librte_eal
-DIRS-$(CONFIG_RTE_LIBRTE_RING) += librte_ring
-DIRS-$(CONFIG_RTE_LIBRTE_MEMPOOL) += librte_mempool
-DIRS-$(CONFIG_RTE_LIBRTE_MBUF) += librte_mbuf
-DIRS-$(CONFIG_RTE_LIBRTE_TIMER) += librte_timer
-DIRS-$(CONFIG_RTE_LIBRTE_CFGFILE) += librte_cfgfile
-DIRS-$(CONFIG_RTE_LIBRTE_CMDLINE) += librte_cmdline
-DIRS-$(CONFIG_RTE_LIBRTE_ETHER) += librte_ether
-DIRS-$(CONFIG_RTE_LIBRTE_VHOST) += librte_vhost
-DIRS-$(CONFIG_RTE_LIBRTE_HASH) += librte_hash
-DIRS-$(CONFIG_RTE_LIBRTE_LPM) += librte_lpm
-DIRS-$(CONFIG_RTE_LIBRTE_ACL) += librte_acl
-DIRS-$(CONFIG_RTE_LIBRTE_NET) += librte_net
-DIRS-$(CONFIG_RTE_LIBRTE_IP_FRAG) += librte_ip_frag
-DIRS-$(CONFIG_RTE_LIBRTE_JOBSTATS) += librte_jobstats
-DIRS-$(CONFIG_RTE_LIBRTE_POWER) += librte_power
-DIRS-$(CONFIG_RTE_LIBRTE_METER) += librte_meter
-DIRS-$(CONFIG_RTE_LIBRTE_SCHED) += librte_sched
-DIRS-$(CONFIG_RTE_LIBRTE_KVARGS) += librte_kvargs
-DIRS-$(CONFIG_RTE_LIBRTE_DISTRIBUTOR) += librte_distributor
-DIRS-$(CONFIG_RTE_LIBRTE_PORT) += librte_port
-DIRS-$(CONFIG_RTE_LIBRTE_TABLE) += librte_table
-DIRS-$(CONFIG_RTE_LIBRTE_PIPELINE) += librte_pipeline
-DIRS-$(CONFIG_RTE_LIBRTE_REORDER) += librte_reorder
-DIRS-$(CONFIG_RTE_LIBRTE_PERSISTENT) += librte_persistent
+CONFIG_RTE_MACHINE="native"
 
-ifeq ($(CONFIG_RTE_EXEC_ENV_LINUXAPP),y)
-DIRS-$(CONFIG_RTE_LIBRTE_KNI) += librte_kni
-DIRS-$(CONFIG_RTE_LIBRTE_IVSHMEM) += librte_ivshmem
-endif
+CONFIG_RTE_ARCH="x86_64"
+CONFIG_RTE_ARCH_X86_64=y
+CONFIG_RTE_ARCH_64=y
 
-include $(RTE_SDK)/mk/rte.sharelib.mk
-include $(RTE_SDK)/mk/rte.subdir.mk
+CONFIG_RTE_TOOLCHAIN="gcc"
+CONFIG_RTE_TOOLCHAIN_GCC=y
+
+#
+# Persistent memory
+#
+CONFIG_RTE_EAL_PERSISTENT_MEM=y
+CONFIG_RTE_EAL_PERSISTENT_MEM_UNIT=2097152
+CONFIG_RTE_EAL_PERSISTENT_MEM_COUNT=256
+CONFIG_RTE_LIBRTE_PERSISTENT=y
+
+#
+# Compile UIO based Mellanox ConnectX-3 (MLX4) PMD
+#
+CONFIG_RTE_LIBRTE_MLNX_UIO_PMD=n
+CONFIG_RTE_LIBRTE_MLNX_UIO_DEBUG=n
