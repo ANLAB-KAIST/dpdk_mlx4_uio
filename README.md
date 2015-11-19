@@ -25,7 +25,7 @@ hugetlbfs /mnt/hugepages hugetlbfs mode=1770,gid=1001 0 0
 #or your boot will fail
 ~~~~~~~~~~~~~
 
-1. /etc/sysctl.conf
+2. /etc/sysctl.conf
 ~~~~~~~~~~~~~{.conf}
 vm.hugetlb_shm_group = 1001
 vm.nr_hugepages = 3072
