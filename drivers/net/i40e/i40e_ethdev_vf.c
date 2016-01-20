@@ -1700,7 +1700,7 @@ i40evf_enable_queues_intr(struct rte_eth_dev *dev)
 			       I40E_VFINT_DYN_CTL01,
 			       I40E_VFINT_DYN_CTL01_INTENA_MASK |
 			       I40E_VFINT_DYN_CTL01_CLEARPBA_MASK);
-		I40E_WRITE_FLUSH(hw);
+		I40EVF_WRITE_FLUSH(hw);
 		return;
 	}
 
@@ -1716,7 +1716,7 @@ i40evf_enable_queues_intr(struct rte_eth_dev *dev)
 				I40E_VFINT_DYN_CTL01_INTENA_MASK |
 				I40E_VFINT_DYN_CTL01_CLEARPBA_MASK);
 
-	I40E_WRITE_FLUSH(hw);
+	I40EVF_WRITE_FLUSH(hw);
 }
 
 static inline void
@@ -1728,7 +1728,7 @@ i40evf_disable_queues_intr(struct rte_eth_dev *dev)
 
 	if (!rte_intr_allow_others(intr_handle)) {
 		I40E_WRITE_REG(hw, I40E_VFINT_DYN_CTL01, 0);
-		I40E_WRITE_FLUSH(hw);
+		I40EVF_WRITE_FLUSH(hw);
 		return;
 	}
 
@@ -1740,7 +1740,7 @@ i40evf_disable_queues_intr(struct rte_eth_dev *dev)
 	else
 		I40E_WRITE_REG(hw, I40E_VFINT_DYN_CTL01, 0);
 
-	I40E_WRITE_FLUSH(hw);
+	I40EVF_WRITE_FLUSH(hw);
 }
 
 static int
@@ -1770,7 +1770,7 @@ i40evf_dev_rx_queue_intr_enable(struct rte_eth_dev *dev, uint16_t queue_id)
 			       (interval <<
 				I40E_VFINT_DYN_CTLN1_INTERVAL_SHIFT));
 
-	I40E_WRITE_FLUSH(hw);
+	I40EVF_WRITE_FLUSH(hw);
 
 	rte_intr_enable(&dev->pci_dev->intr_handle);
 
@@ -1793,7 +1793,7 @@ i40evf_dev_rx_queue_intr_disable(struct rte_eth_dev *dev, uint16_t queue_id)
 						    I40E_RX_VEC_START),
 			       0);
 
-	I40E_WRITE_FLUSH(hw);
+	I40EVF_WRITE_FLUSH(hw);
 
 	return 0;
 }
@@ -1878,7 +1878,9 @@ err_queue:
 static void
 i40evf_dev_stop(struct rte_eth_dev *dev)
 {
+	struct i40e_hw *hw = I40E_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 	struct rte_intr_handle *intr_handle = &dev->pci_dev->intr_handle;
+	struct ether_addr mac_addr;
 
 	PMD_INIT_FUNC_TRACE();
 
@@ -1892,6 +1894,11 @@ i40evf_dev_stop(struct rte_eth_dev *dev)
 		rte_free(intr_handle->intr_vec);
 		intr_handle->intr_vec = NULL;
 	}
+	/* Set mac addr */
+	(void)rte_memcpy(mac_addr.addr_bytes, hw->mac.addr,
+				sizeof(mac_addr.addr_bytes));
+	/* Delete mac addr of this vf */
+	i40evf_del_mac_addr(dev, &mac_addr);
 }
 
 static int
@@ -2200,9 +2207,14 @@ i40evf_set_rss_key(struct i40e_vsi *vsi, uint8_t *key, uint8_t key_len)
 	struct i40e_hw *hw = I40E_VSI_TO_HW(vsi);
 	int ret = 0;
 
-	if (!key || key_len != ((I40E_VFQF_HKEY_MAX_INDEX + 1) *
-		sizeof(uint32_t)))
+	if (!key || key_len == 0) {
+		PMD_DRV_LOG(DEBUG, "No key to be configured");
+		return 0;
+	} else if (key_len != (I40E_VFQF_HKEY_MAX_INDEX + 1) *
+		sizeof(uint32_t)) {
+		PMD_DRV_LOG(ERR, "Invalid key length %u", key_len);
 		return -EINVAL;
+	}
 
 	if (vf->flags & I40E_FLAG_RSS_AQ_CAPABLE) {
 		struct i40e_aqc_get_set_rss_key_data *key_dw =
@@ -2322,12 +2334,14 @@ i40evf_config_rss(struct i40e_vf *vf)
 		return 0;
 	}
 
-	if (rss_conf.rss_key == NULL || rss_conf.rss_key_len < nb_q) {
+	if (rss_conf.rss_key == NULL || rss_conf.rss_key_len <
+		(I40E_VFQF_HKEY_MAX_INDEX + 1) * sizeof(uint32_t)) {
 		/* Calculate the default hash key */
 		for (i = 0; i <= I40E_VFQF_HKEY_MAX_INDEX; i++)
 			rss_key_default[i] = (uint32_t)rte_rand();
 		rss_conf.rss_key = (uint8_t *)rss_key_default;
-		rss_conf.rss_key_len = nb_q;
+		rss_conf.rss_key_len = (I40E_VFQF_HKEY_MAX_INDEX + 1) *
+			sizeof(uint32_t);
 	}
 
 	return i40evf_hw_rss_hash_set(vf, &rss_conf);

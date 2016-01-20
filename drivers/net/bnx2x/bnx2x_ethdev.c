@@ -1,7 +1,11 @@
 /*
  * Copyright (c) 2013-2015 Brocade Communications Systems, Inc.
  *
+ * Copyright (c) 2015 QLogic Corporation.
  * All rights reserved.
+ * www.qlogic.com
+ *
+ * See LICENSE.bnx2x_pmd for copyright and licensing details.
  */
 
 #include "bnx2x.h"
@@ -52,7 +56,7 @@ bnx2x_interrupt_action(struct rte_eth_dev *dev)
 	struct bnx2x_softc *sc = dev->data->dev_private;
 	uint32_t link_status;
 
-	PMD_DRV_LOG(INFO, "Interrupt handled");
+	PMD_DEBUG_PERIODIC_LOG(INFO, "Interrupt handled");
 
 	if (bnx2x_intr_legacy(sc, 0))
 		DELAY_MS(250);
@@ -438,7 +442,7 @@ bnx2x_common_dev_init(struct rte_eth_dev *eth_dev, int is_vf)
 	sc->bar[BAR0].base_addr = (void *)pci_dev->mem_resource[0].addr;
 	if (is_vf)
 		sc->bar[BAR1].base_addr = (void *)
-			((uint64_t)pci_dev->mem_resource[0].addr + PXP_VF_ADDR_DB_START);
+			((uintptr_t)pci_dev->mem_resource[0].addr + PXP_VF_ADDR_DB_START);
 	else
 		sc->bar[BAR1].base_addr = pci_dev->mem_resource[2].addr;
 

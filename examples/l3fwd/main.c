@@ -1005,7 +1005,7 @@ simple_ipv6_fwd_8pkts(struct rte_mbuf *m[8], uint8_t portid, struct lcore_conf *
 	const void *key_array[8] = {&key[0], &key[1], &key[2], &key[3],
 				&key[4], &key[5], &key[6], &key[7]};
 
-	rte_hash_lookup_multi(qconf->ipv6_lookup_struct, &key_array[0], 4, ret);
+	rte_hash_lookup_multi(qconf->ipv6_lookup_struct, &key_array[0], 8, ret);
 	dst_port[0] = (uint8_t) ((ret[0] < 0) ? portid:ipv6_l3fwd_out_if[ret[0]]);
 	dst_port[1] = (uint8_t) ((ret[1] < 0) ? portid:ipv6_l3fwd_out_if[ret[1]]);
 	dst_port[2] = (uint8_t) ((ret[2] < 0) ? portid:ipv6_l3fwd_out_if[ret[2]]);
@@ -1220,14 +1220,14 @@ process_packet(struct lcore_conf *qconf, struct rte_mbuf *pkt,
 	dst_ipv4 = rte_be_to_cpu_32(dst_ipv4);
 	dp = get_dst_port(qconf, pkt, dst_ipv4, portid);
 
-	te = _mm_load_si128((__m128i *)eth_hdr);
+	te = _mm_loadu_si128((__m128i *)eth_hdr);
 	ve = val_eth[dp];
 
 	dst_port[0] = dp;
 	rfc1812_process(ipv4_hdr, dst_port, pkt->packet_type);
 
 	te =  _mm_blend_epi16(te, ve, MASK_ETH);
-	_mm_store_si128((__m128i *)eth_hdr, te);
+	_mm_storeu_si128((__m128i *)eth_hdr, te);
 }
 
 /*
@@ -1313,16 +1313,16 @@ processx4_step3(struct rte_mbuf *pkt[FWDSTEP], uint16_t dst_port[FWDSTEP])
 	p[3] = rte_pktmbuf_mtod(pkt[3], __m128i *);
 
 	ve[0] = val_eth[dst_port[0]];
-	te[0] = _mm_load_si128(p[0]);
+	te[0] = _mm_loadu_si128(p[0]);
 
 	ve[1] = val_eth[dst_port[1]];
-	te[1] = _mm_load_si128(p[1]);
+	te[1] = _mm_loadu_si128(p[1]);
 
 	ve[2] = val_eth[dst_port[2]];
-	te[2] = _mm_load_si128(p[2]);
+	te[2] = _mm_loadu_si128(p[2]);
 
 	ve[3] = val_eth[dst_port[3]];
-	te[3] = _mm_load_si128(p[3]);
+	te[3] = _mm_loadu_si128(p[3]);
 
 	/* Update first 12 bytes, keep rest bytes intact. */
 	te[0] =  _mm_blend_epi16(te[0], ve[0], MASK_ETH);
@@ -1330,10 +1330,10 @@ processx4_step3(struct rte_mbuf *pkt[FWDSTEP], uint16_t dst_port[FWDSTEP])
 	te[2] =  _mm_blend_epi16(te[2], ve[2], MASK_ETH);
 	te[3] =  _mm_blend_epi16(te[3], ve[3], MASK_ETH);
 
-	_mm_store_si128(p[0], te[0]);
-	_mm_store_si128(p[1], te[1]);
-	_mm_store_si128(p[2], te[2]);
-	_mm_store_si128(p[3], te[3]);
+	_mm_storeu_si128(p[0], te[0]);
+	_mm_storeu_si128(p[1], te[1]);
+	_mm_storeu_si128(p[2], te[2]);
+	_mm_storeu_si128(p[3], te[3]);
 
 	rfc1812_process((struct ipv4_hdr *)((struct ether_hdr *)p[0] + 1),
 		&dst_port[0], pkt[0]->packet_type);
@@ -2074,7 +2074,7 @@ parse_args(int argc, char **argv)
 			}
 
 			if (!strncmp(lgopts[option_index].name, CMD_LINE_OPT_ETH_DEST,
-				sizeof(CMD_LINE_OPT_CONFIG))) {
+				sizeof(CMD_LINE_OPT_ETH_DEST))) {
 					parse_eth_dest(optarg);
 			}
 

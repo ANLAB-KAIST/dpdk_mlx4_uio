@@ -29,29 +29,26 @@
 #   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-ifdef O
-ifeq ("$(origin O)", "command line")
-$(error "Cannot use O= with testall target")
-endif
+ifeq ($(RTE_SDK),)
+$(error "Please define RTE_SDK environment variable")
 endif
 
-# Targets to test can be specified in command line. It can be a
-# target name or a name containing jokers "*". Example:
-# x86_64-native-*-gcc
-ifndef T
-T=*
-endif
+# Default target, can be overridden by command line or environment
+RTE_TARGET ?= x86_64-native-linuxapp-gcc
 
-#
-# testall: launch test for all supported targets
-#
-TESTALL_CONFIGS := $(patsubst $(RTE_SRCDIR)/config/defconfig_%,%,\
-	$(wildcard $(RTE_SRCDIR)/config/defconfig_$(T)))
-TESTALL_TARGETS := $(addsuffix _testall,\
-	$(filter-out %~,$(TESTALL_CONFIGS)))
-.PHONY: testall
-testall: $(TESTALL_TARGETS)
+include $(RTE_SDK)/mk/rte.vars.mk
 
-%_testall:
-	@echo ================== Test $*
-	$(Q)$(MAKE) fast_test O=$*
+# binary name
+APP = ethtool
+
+# all source are stored in SRCS-y
+SRCS-y := main.c ethapp.c
+
+CFLAGS += -O3 -D_GNU_SOURCE -pthread -I$(SRCDIR)/../lib
+CFLAGS += $(WERROR_FLAGS)
+
+LDLIBS += -L$(subst ethtool-app,lib,$(RTE_OUTPUT))/lib
+LDLIBS += -lrte_ethtool
+
+
+include $(RTE_SDK)/mk/rte.extapp.mk

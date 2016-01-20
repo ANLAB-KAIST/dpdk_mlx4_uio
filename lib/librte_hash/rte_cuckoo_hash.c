@@ -63,6 +63,10 @@
 #include "rte_cmp_x86.h"
 #endif
 
+#if defined(RTE_ARCH_ARM64)
+#include "rte_cmp_arm64.h"
+#endif
+
 TAILQ_HEAD(rte_hash_list, rte_tailq_entry);
 
 static struct rte_tailq_elem rte_hash_tailq = {
@@ -81,7 +85,7 @@ EAL_REGISTER_TAILQ(rte_hash_tailq)
 #endif
 
 /* Hash function used if none is specified */
-#ifdef RTE_MACHINE_CPUFLAG_SSE4_2
+#if defined(RTE_MACHINE_CPUFLAG_SSE4_2) || defined(RTE_MACHINE_CPUFLAG_CRC32)
 #include <rte_hash_crc.h>
 #define DEFAULT_HASH_FUNC       rte_hash_crc
 #else
@@ -97,8 +101,6 @@ EAL_REGISTER_TAILQ(rte_hash_tailq)
 #define KEY_ALIGNMENT			16
 
 #define LCORE_CACHE_SIZE		8
-
-typedef int (*rte_hash_cmp_eq_t)(const void *key1, const void *key2, size_t key_len);
 
 struct lcore_cache {
 	unsigned len; /**< Cache len */
@@ -181,6 +183,11 @@ rte_hash_find_existing(const char *name)
 		return NULL;
 	}
 	return h;
+}
+
+void rte_hash_set_cmp_func(struct rte_hash *h, rte_hash_cmp_eq_t func)
+{
+	h->rte_hash_cmp_eq = func;
 }
 
 struct rte_hash *
@@ -280,7 +287,8 @@ rte_hash_create(const struct rte_hash_parameters *params)
  * If x86 architecture is used, select appropriate compare function,
  * which may use x86 instrinsics, otherwise use memcmp
  */
-#if defined(RTE_ARCH_X86_64) || defined(RTE_ARCH_I686) || defined(RTE_ARCH_X86_X32)
+#if defined(RTE_ARCH_X86_64) || defined(RTE_ARCH_I686) ||\
+	 defined(RTE_ARCH_X86_X32) || defined(RTE_ARCH_ARM64)
 	/* Select function to compare keys */
 	switch (params->key_len) {
 	case 16:

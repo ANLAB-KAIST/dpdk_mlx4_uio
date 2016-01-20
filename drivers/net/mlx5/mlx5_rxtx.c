@@ -115,6 +115,24 @@ txq_complete(struct txq *txq)
 }
 
 /**
+ * Get Memory Pool (MP) from mbuf. If mbuf is indirect, the pool from which
+ * the cloned mbuf is allocated is returned instead.
+ *
+ * @param buf
+ *   Pointer to mbuf.
+ *
+ * @return
+ *   Memory pool where data is located for given mbuf.
+ */
+static struct rte_mempool *
+txq_mb2mp(struct rte_mbuf *buf)
+{
+	if (unlikely(RTE_MBUF_INDIRECT(buf)))
+		return rte_mbuf_from_indirect(buf)->pool;
+	return buf->pool;
+}
+
+/**
  * Get Memory Region (MR) <-> Memory Pool (MP) association from txq->mp2mr[].
  * Add MP to txq->mp2mr[] if it's not registered yet. If mp2mr[] is full,
  * remove an entry first.
@@ -128,7 +146,7 @@ txq_complete(struct txq *txq)
  *   mr->lkey on success, (uint32_t)-1 on failure.
  */
 static uint32_t
-txq_mp2mr(struct txq *txq, struct rte_mempool *mp)
+txq_mp2mr(struct txq *txq, const struct rte_mempool *mp)
 {
 	unsigned int i;
 	struct ibv_mr *mr;
@@ -145,7 +163,8 @@ txq_mp2mr(struct txq *txq, struct rte_mempool *mp)
 		}
 	}
 	/* Add a new entry, register MR first. */
-	DEBUG("%p: discovered new memory pool %p", (void *)txq, (void *)mp);
+	DEBUG("%p: discovered new memory pool \"%s\" (%p)",
+	      (void *)txq, mp->name, (const void *)mp);
 	mr = ibv_reg_mr(txq->priv->pd,
 			(void *)mp->elt_va_start,
 			(mp->elt_va_end - mp->elt_va_start),
@@ -160,7 +179,7 @@ txq_mp2mr(struct txq *txq, struct rte_mempool *mp)
 		DEBUG("%p: MR <-> MP table full, dropping oldest entry.",
 		      (void *)txq);
 		--i;
-		claim_zero(ibv_dereg_mr(txq->mp2mr[i].mr));
+		claim_zero(ibv_dereg_mr(txq->mp2mr[0].mr));
 		memmove(&txq->mp2mr[0], &txq->mp2mr[1],
 			(sizeof(txq->mp2mr) - sizeof(txq->mp2mr[0])));
 	}
@@ -168,9 +187,85 @@ txq_mp2mr(struct txq *txq, struct rte_mempool *mp)
 	txq->mp2mr[i].mp = mp;
 	txq->mp2mr[i].mr = mr;
 	txq->mp2mr[i].lkey = mr->lkey;
-	DEBUG("%p: new MR lkey for MP %p: 0x%08" PRIu32,
-	      (void *)txq, (void *)mp, txq->mp2mr[i].lkey);
+	DEBUG("%p: new MR lkey for MP \"%s\" (%p): 0x%08" PRIu32,
+	      (void *)txq, mp->name, (const void *)mp, txq->mp2mr[i].lkey);
 	return txq->mp2mr[i].lkey;
+}
+
+struct txq_mp2mr_mbuf_check_data {
+	const struct rte_mempool *mp;
+	int ret;
+};
+
+/**
+ * Callback function for rte_mempool_obj_iter() to check whether a given
+ * mempool object looks like a mbuf.
+ *
+ * @param[in, out] arg
+ *   Context data (struct txq_mp2mr_mbuf_check_data). Contains mempool pointer
+ *   and return value.
+ * @param[in] start
+ *   Object start address.
+ * @param[in] end
+ *   Object end address.
+ * @param index
+ *   Unused.
+ *
+ * @return
+ *   Nonzero value when object is not a mbuf.
+ */
+static void
+txq_mp2mr_mbuf_check(void *arg, void *start, void *end,
+		     uint32_t index __rte_unused)
+{
+	struct txq_mp2mr_mbuf_check_data *data = arg;
+	struct rte_mbuf *buf =
+		(void *)((uintptr_t)start + data->mp->header_size);
+
+	(void)index;
+	/* Check whether mbuf structure fits element size and whether mempool
+	 * pointer is valid. */
+	if (((uintptr_t)end >= (uintptr_t)(buf + 1)) &&
+	    (buf->pool == data->mp))
+		data->ret = 0;
+	else
+		data->ret = -1;
+}
+
+/**
+ * Iterator function for rte_mempool_walk() to register existing mempools and
+ * fill the MP to MR cache of a TX queue.
+ *
+ * @param[in] mp
+ *   Memory Pool to register.
+ * @param *arg
+ *   Pointer to TX queue structure.
+ */
+void
+txq_mp2mr_iter(const struct rte_mempool *mp, void *arg)
+{
+	struct txq *txq = arg;
+	struct txq_mp2mr_mbuf_check_data data = {
+		.mp = mp,
+		.ret = -1,
+	};
+
+	/* Discard empty mempools. */
+	if (mp->size == 0)
+		return;
+	/* Register mempool only if the first element looks like a mbuf. */
+	rte_mempool_obj_iter((void *)mp->elt_va_start,
+			     1,
+			     mp->header_size + mp->elt_size + mp->trailer_size,
+			     1,
+			     mp->elt_pa,
+			     mp->pg_num,
+			     mp->pg_shift,
+			     txq_mp2mr_mbuf_check,
+			     &data);
+	if (data.ret)
+		return;
+	txq_mp2mr(txq, mp);
 }
 
 #if MLX5_PMD_SGE_WR_N > 1
@@ -254,7 +349,7 @@ tx_burst_sg(struct txq *txq, unsigned int segs, struct txq_elt *elt,
 		uint32_t lkey;
 
 		/* Retrieve Memory Region key for this memory pool. */
-		lkey = txq_mp2mr(txq, buf->pool);
+		lkey = txq_mp2mr(txq, txq_mb2mp(buf));
 		if (unlikely(lkey == (uint32_t)-1)) {
 			/* MR does not exist. */
 			DEBUG("%p: unable to get MP <-> MR association",
@@ -307,6 +402,8 @@ tx_burst_sg(struct txq *txq, unsigned int segs, struct txq_elt *elt,
 		sge->length = size;
 		sge->lkey = txq->mr_linear->lkey;
 		sent_size += size;
+		/* Include last segment. */
+		segs++;
 	}
 	return (struct tx_burst_sg_ret){
 		.length = sent_size,
@@ -339,7 +436,6 @@ mlx5_tx_burst(void *dpdk_txq, struct rte_mbuf **pkts, uint16_t pkts_n)
 {
 	struct txq *txq = (struct txq *)dpdk_txq;
 	unsigned int elts_head = txq->elts_head;
-	const unsigned int elts_tail = txq->elts_tail;
 	const unsigned int elts_n = txq->elts_n;
 	unsigned int elts_comp_cd = txq->elts_comp_cd;
 	unsigned int elts_comp = 0;
@@ -349,7 +445,7 @@ mlx5_tx_burst(void *dpdk_txq, struct rte_mbuf **pkts, uint16_t pkts_n)
 
 	assert(elts_comp_cd != 0);
 	txq_complete(txq);
-	max = (elts_n - (elts_head - elts_tail));
+	max = (elts_n - (elts_head - txq->elts_tail));
 	if (max > elts_n)
 		max -= elts_n;
 	assert(max >= 1);
@@ -410,7 +506,7 @@ mlx5_tx_burst(void *dpdk_txq, struct rte_mbuf **pkts, uint16_t pkts_n)
 			addr = rte_pktmbuf_mtod(buf, uintptr_t);
 			length = DATA_LEN(buf);
 			/* Retrieve Memory Region key for this memory pool. */
-			lkey = txq_mp2mr(txq, buf->pool);
+			lkey = txq_mp2mr(txq, txq_mb2mp(buf));
 			if (unlikely(lkey == (uint32_t)-1)) {
 				/* MR does not exist. */
 				DEBUG("%p: unable to get MP <-> MR"

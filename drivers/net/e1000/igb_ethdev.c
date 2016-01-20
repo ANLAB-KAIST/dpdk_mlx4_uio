@@ -78,7 +78,7 @@
 #define IGB_8_BIT_MASK   UINT8_MAX
 
 /* Additional timesync values. */
-#define E1000_CYCLECOUNTER_MASK      0xffffffffffffffff
+#define E1000_CYCLECOUNTER_MASK      0xffffffffffffffffULL
 #define E1000_ETQF_FILTER_1588       3
 #define IGB_82576_TSYNC_SHIFT        16
 #define E1000_INCPERIOD_82576        (1 << E1000_TIMINCA_16NS_SHIFT)
@@ -647,8 +647,6 @@ eth_igb_dev_init(struct rte_eth_dev *eth_dev)
 
 	pci_dev = eth_dev->pci_dev;
 
-	rte_eth_copy_pci_info(eth_dev, pci_dev);
-
 	eth_dev->dev_ops = &eth_igb_ops;
 	eth_dev->rx_pkt_burst = &eth_igb_recv_pkts;
 	eth_dev->tx_pkt_burst = &eth_igb_xmit_pkts;
@@ -661,6 +659,8 @@ eth_igb_dev_init(struct rte_eth_dev *eth_dev)
 			eth_dev->rx_pkt_burst = &eth_igb_recv_scattered_pkts;
 		return 0;
 	}
+
+	rte_eth_copy_pci_info(eth_dev, pci_dev);
 
 	hw->hw_addr= (void *)pci_dev->mem_resource[0].addr;
 
@@ -846,6 +846,7 @@ eth_igbvf_dev_init(struct rte_eth_dev *eth_dev)
 	struct e1000_hw *hw =
 		E1000_DEV_PRIVATE_TO_HW(eth_dev->data->dev_private);
 	int diag;
+	struct ether_addr *perm_addr = (struct ether_addr *)hw->mac.perm_addr;
 
 	PMD_INIT_FUNC_TRACE();
 
@@ -896,6 +897,26 @@ eth_igbvf_dev_init(struct rte_eth_dev *eth_dev)
 			"addresses",
 			ETHER_ADDR_LEN * hw->mac.rar_entry_count);
 		return -ENOMEM;
+	}
+
+	/* Generate a random MAC address, if none was assigned by PF. */
+	if (is_zero_ether_addr(perm_addr)) {
+		eth_random_addr(perm_addr->addr_bytes);
+		diag = e1000_rar_set(hw, perm_addr->addr_bytes, 0);
+		if (diag) {
+			rte_free(eth_dev->data->mac_addrs);
+			eth_dev->data->mac_addrs = NULL;
+			return diag;
+		}
+		PMD_INIT_LOG(INFO, "\tVF MAC address not assigned by Host PF");
+		PMD_INIT_LOG(INFO, "\tAssign randomly generated MAC address "
+			     "%02x:%02x:%02x:%02x:%02x:%02x",
+			     perm_addr->addr_bytes[0],
+			     perm_addr->addr_bytes[1],
+			     perm_addr->addr_bytes[2],
+			     perm_addr->addr_bytes[3],
+			     perm_addr->addr_bytes[4],
+			     perm_addr->addr_bytes[5]);
 	}
 
 	/* Copy the permanent MAC address */
@@ -1100,6 +1121,9 @@ eth_igb_start(struct rte_eth_dev *dev)
 	uint32_t ctrl_ext;
 
 	PMD_INIT_FUNC_TRACE();
+
+	/* disable uio/vfio intr/eventfd mapping */
+	rte_intr_disable(intr_handle);
 
 	/* Power up the phy. Needed to make the link go Up */
 	e1000_power_up_phy(hw);
@@ -1480,6 +1504,13 @@ igb_read_stats_registers(struct e1000_hw *hw, struct e1000_hw_stats *stats)
 {
 	int pause_frames;
 
+	uint64_t old_gprc  = stats->gprc;
+	uint64_t old_gptc  = stats->gptc;
+	uint64_t old_tpr   = stats->tpr;
+	uint64_t old_tpt   = stats->tpt;
+	uint64_t old_rpthc = stats->rpthc;
+	uint64_t old_hgptc = stats->hgptc;
+
 	if(hw->phy.media_type == e1000_media_type_copper ||
 	    (E1000_READ_REG(hw, E1000_STATUS) & E1000_STATUS_LU)) {
 		stats->symerrs +=
@@ -1521,10 +1552,13 @@ igb_read_stats_registers(struct e1000_hw *hw, struct e1000_hw_stats *stats)
 	/* For the 64-bit byte counters the low dword must be read first. */
 	/* Both registers clear on the read of the high dword */
 
+	/* Workaround CRC bytes included in size, take away 4 bytes/packet */
 	stats->gorc += E1000_READ_REG(hw, E1000_GORCL);
 	stats->gorc += ((uint64_t)E1000_READ_REG(hw, E1000_GORCH) << 32);
+	stats->gorc -= (stats->gprc - old_gprc) * ETHER_CRC_LEN;
 	stats->gotc += E1000_READ_REG(hw, E1000_GOTCL);
 	stats->gotc += ((uint64_t)E1000_READ_REG(hw, E1000_GOTCH) << 32);
+	stats->gotc -= (stats->gptc - old_gptc) * ETHER_CRC_LEN;
 
 	stats->rnbc += E1000_READ_REG(hw, E1000_RNBC);
 	stats->ruc += E1000_READ_REG(hw, E1000_RUC);
@@ -1532,13 +1566,16 @@ igb_read_stats_registers(struct e1000_hw *hw, struct e1000_hw_stats *stats)
 	stats->roc += E1000_READ_REG(hw, E1000_ROC);
 	stats->rjc += E1000_READ_REG(hw, E1000_RJC);
 
-	stats->tor += E1000_READ_REG(hw, E1000_TORL);
-	stats->tor += ((uint64_t)E1000_READ_REG(hw, E1000_TORH) << 32);
-	stats->tot += E1000_READ_REG(hw, E1000_TOTL);
-	stats->tot += ((uint64_t)E1000_READ_REG(hw, E1000_TOTH) << 32);
-
 	stats->tpr += E1000_READ_REG(hw, E1000_TPR);
 	stats->tpt += E1000_READ_REG(hw, E1000_TPT);
+
+	stats->tor += E1000_READ_REG(hw, E1000_TORL);
+	stats->tor += ((uint64_t)E1000_READ_REG(hw, E1000_TORH) << 32);
+	stats->tor -= (stats->tpr - old_tpr) * ETHER_CRC_LEN;
+	stats->tot += E1000_READ_REG(hw, E1000_TOTL);
+	stats->tot += ((uint64_t)E1000_READ_REG(hw, E1000_TOTH) << 32);
+	stats->tot -= (stats->tpt - old_tpt) * ETHER_CRC_LEN;
+
 	stats->ptc64 += E1000_READ_REG(hw, E1000_PTC64);
 	stats->ptc127 += E1000_READ_REG(hw, E1000_PTC127);
 	stats->ptc255 += E1000_READ_REG(hw, E1000_PTC255);
@@ -1571,8 +1608,10 @@ igb_read_stats_registers(struct e1000_hw *hw, struct e1000_hw_stats *stats)
 	stats->htcbdpc += E1000_READ_REG(hw, E1000_HTCBDPC);
 	stats->hgorc += E1000_READ_REG(hw, E1000_HGORCL);
 	stats->hgorc += ((uint64_t)E1000_READ_REG(hw, E1000_HGORCH) << 32);
+	stats->hgorc -= (stats->rpthc - old_rpthc) * ETHER_CRC_LEN;
 	stats->hgotc += E1000_READ_REG(hw, E1000_HGOTCL);
 	stats->hgotc += ((uint64_t)E1000_READ_REG(hw, E1000_HGOTCH) << 32);
+	stats->hgotc -= (stats->hgptc - old_hgptc) * ETHER_CRC_LEN;
 	stats->lenerrs += E1000_READ_REG(hw, E1000_LENERRS);
 	stats->scvpc += E1000_READ_REG(hw, E1000_SCVPC);
 	stats->hrmpc += E1000_READ_REG(hw, E1000_HRMPC);

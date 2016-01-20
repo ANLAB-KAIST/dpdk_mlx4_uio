@@ -131,7 +131,7 @@
 #define I40E_PTP_1GB_INCVAL      0x2000000000ULL
 #define I40E_PRTTSYN_TSYNENA     0x80000000
 #define I40E_PRTTSYN_TSYNTYPE    0x0e000000
-#define I40E_CYCLECOUNTER_MASK   0xffffffffffffffff
+#define I40E_CYCLECOUNTER_MASK   0xffffffffffffffffULL
 
 #define I40E_MAX_PERCENT            100
 #define I40E_DEFAULT_DCB_APP_NUM    1
@@ -194,7 +194,7 @@
 #define I40E_INSET_FLEX_PAYLOAD_W8 0x8000000000000000ULL
 #define I40E_INSET_FLEX_PAYLOAD \
 	(I40E_INSET_FLEX_PAYLOAD_W1 | I40E_INSET_FLEX_PAYLOAD_W2 | \
-	I40E_INSET_FLEX_PAYLOAD_W3 | I40E_INSET_FLEX_PAYLOAD_W3 | \
+	I40E_INSET_FLEX_PAYLOAD_W3 | I40E_INSET_FLEX_PAYLOAD_W4 | \
 	I40E_INSET_FLEX_PAYLOAD_W5 | I40E_INSET_FLEX_PAYLOAD_W6 | \
 	I40E_INSET_FLEX_PAYLOAD_W7 | I40E_INSET_FLEX_PAYLOAD_W8)
 
@@ -207,9 +207,9 @@
 /* Source MAC address */
 #define I40E_REG_INSET_L2_SMAC                   0x1C00000000000000ULL
 /* VLAN tag in the outer L2 header */
-#define I40E_REG_INSET_L2_OUTER_VLAN             0x0000000000800000ULL
+#define I40E_REG_INSET_L2_OUTER_VLAN             0x0080000000000000ULL
 /* VLAN tag in the inner L2 header */
-#define I40E_REG_INSET_L2_INNER_VLAN             0x0000000001000000ULL
+#define I40E_REG_INSET_L2_INNER_VLAN             0x0100000000000000ULL
 /* Source IPv4 address */
 #define I40E_REG_INSET_L3_SRC_IP4                0x0001800000000000ULL
 /* Destination IPv4 address */
@@ -919,6 +919,11 @@ eth_i40e_dev_init(struct rte_eth_dev *dev)
 	 */
 	i40e_add_tx_flow_control_drop_filter(pf);
 
+	/* Set the max frame size to 0x2600 by default,
+	 * in case other drivers changed the default value.
+	 */
+	i40e_aq_set_mac_config(hw, I40E_FRAME_SIZE_MAX, TRUE, 0, NULL);
+
 	/* initialize mirror rule list */
 	TAILQ_INIT(&pf->mirror_list);
 
@@ -1347,58 +1352,15 @@ i40e_parse_link_speed(uint16_t eth_link_speed)
 }
 
 static int
-i40e_phy_conf_link(struct i40e_hw *hw, uint8_t abilities, uint8_t force_speed)
+i40e_phy_conf_link(__rte_unused struct i40e_hw *hw,
+		   __rte_unused uint8_t abilities,
+		   __rte_unused uint8_t force_speed)
 {
-	enum i40e_status_code status;
-	struct i40e_aq_get_phy_abilities_resp phy_ab;
-	struct i40e_aq_set_phy_config phy_conf;
-	const uint8_t mask = I40E_AQ_PHY_FLAG_PAUSE_TX |
-			I40E_AQ_PHY_FLAG_PAUSE_RX |
-			I40E_AQ_PHY_FLAG_LOW_POWER;
-	const uint8_t advt = I40E_LINK_SPEED_40GB |
-			I40E_LINK_SPEED_10GB |
-			I40E_LINK_SPEED_1GB |
-			I40E_LINK_SPEED_100MB;
-	int ret = -ENOTSUP;
-
-	/* Skip it on 40G interfaces, as a workaround for the link issue */
-	if (i40e_is_40G_device(hw->device_id))
-		return I40E_SUCCESS;
-
-	status = i40e_aq_get_phy_capabilities(hw, false, false, &phy_ab,
-					      NULL);
-	if (status)
-		return ret;
-
-	memset(&phy_conf, 0, sizeof(phy_conf));
-
-	/* bits 0-2 use the values from get_phy_abilities_resp */
-	abilities &= ~mask;
-	abilities |= phy_ab.abilities & mask;
-
-	/* update ablities and speed */
-	if (abilities & I40E_AQ_PHY_AN_ENABLED)
-		phy_conf.link_speed = advt;
-	else
-		phy_conf.link_speed = force_speed;
-
-	phy_conf.abilities = abilities;
-
-	/* use get_phy_abilities_resp value for the rest */
-	phy_conf.phy_type = phy_ab.phy_type;
-	phy_conf.eee_capability = phy_ab.eee_capability;
-	phy_conf.eeer = phy_ab.eeer_val;
-	phy_conf.low_power_ctrl = phy_ab.d3_lpan;
-
-	PMD_DRV_LOG(DEBUG, "\tCurrent: abilities %x, link_speed %x",
-		    phy_ab.abilities, phy_ab.link_speed);
-	PMD_DRV_LOG(DEBUG, "\tConfig:  abilities %x, link_speed %x",
-		    phy_conf.abilities, phy_conf.link_speed);
-
-	status = i40e_aq_set_phy_config(hw, &phy_conf, NULL);
-	if (status)
-		return ret;
-
+	/* Skip any phy config on both 10G and 40G interfaces, as a workaround
+	 * for the link control limitation of that all link control should be
+	 * handled by firmware. It should follow up if link control will be
+	 * opened to software driver in future firmware versions.
+	 */
 	return I40E_SUCCESS;
 }
 
@@ -1870,6 +1832,7 @@ i40e_read_stats_registers(struct i40e_pf *pf, struct i40e_hw *hw)
 	unsigned int i;
 	struct i40e_hw_port_stats *ns = &pf->stats; /* new stats */
 	struct i40e_hw_port_stats *os = &pf->stats_offset; /* old stats */
+
 	/* Get statistics of struct i40e_eth_stats */
 	i40e_stat_update_48(hw, I40E_GLPRT_GORCH(hw->port),
 			    I40E_GLPRT_GORCL(hw->port),
@@ -1887,6 +1850,12 @@ i40e_read_stats_registers(struct i40e_pf *pf, struct i40e_hw *hw)
 			    I40E_GLPRT_BPRCL(hw->port),
 			    pf->offset_loaded, &os->eth.rx_broadcast,
 			    &ns->eth.rx_broadcast);
+	/* Workaround: CRC size should not be included in byte statistics,
+	 * so subtract ETHER_CRC_LEN from the byte counter for each rx packet.
+	 */
+	ns->eth.rx_bytes -= (ns->eth.rx_unicast + ns->eth.rx_multicast +
+		ns->eth.rx_broadcast) * ETHER_CRC_LEN;
+
 	i40e_stat_update_32(hw, I40E_GLPRT_RDPC(hw->port),
 			    pf->offset_loaded, &os->eth.rx_discards,
 			    &ns->eth.rx_discards);
@@ -1912,6 +1881,8 @@ i40e_read_stats_registers(struct i40e_pf *pf, struct i40e_hw *hw)
 			    I40E_GLPRT_BPTCL(hw->port),
 			    pf->offset_loaded, &os->eth.tx_broadcast,
 			    &ns->eth.tx_broadcast);
+	ns->eth.tx_bytes -= (ns->eth.tx_unicast + ns->eth.tx_multicast +
+		ns->eth.tx_broadcast) * ETHER_CRC_LEN;
 	/* GLPRT_TEPC not supported */
 
 	/* additional port specific stats */
@@ -2069,8 +2040,8 @@ i40e_dev_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
 	stats->opackets = pf->main_vsi->eth_stats.tx_unicast +
 			pf->main_vsi->eth_stats.tx_multicast +
 			pf->main_vsi->eth_stats.tx_broadcast;
-	stats->ibytes   = pf->main_vsi->eth_stats.rx_bytes;
-	stats->obytes   = pf->main_vsi->eth_stats.tx_bytes;
+	stats->ibytes   = ns->eth.rx_bytes;
+	stats->obytes   = ns->eth.tx_bytes;
 	stats->oerrors  = ns->eth.tx_errors +
 			pf->main_vsi->eth_stats.tx_errors;
 	stats->imcasts  = pf->main_vsi->eth_stats.rx_multicast;
@@ -3789,14 +3760,22 @@ i40e_update_default_filter_setting(struct i40e_vsi *vsi)
 	return i40e_vsi_add_mac(vsi, &filter);
 }
 
-static int
-i40e_vsi_dump_bw_config(struct i40e_vsi *vsi)
+#define I40E_3_BIT_MASK     0x7
+/*
+ * i40e_vsi_get_bw_config - Query VSI BW Information
+ * @vsi: the VSI to be queried
+ *
+ * Returns 0 on success, negative value on failure
+ */
+static enum i40e_status_code
+i40e_vsi_get_bw_config(struct i40e_vsi *vsi)
 {
 	struct i40e_aqc_query_vsi_bw_config_resp bw_config;
 	struct i40e_aqc_query_vsi_ets_sla_config_resp ets_sla_config;
 	struct i40e_hw *hw = &vsi->adapter->hw;
 	i40e_status ret;
 	int i;
+	uint32_t bw_max;
 
 	memset(&bw_config, 0, sizeof(bw_config));
 	ret = i40e_aq_query_vsi_bw_config(hw, vsi->seid, &bw_config, NULL);
@@ -3815,20 +3794,32 @@ i40e_vsi_dump_bw_config(struct i40e_vsi *vsi)
 		return ret;
 	}
 
-	/* Not store the info yet, just print out */
-	PMD_DRV_LOG(INFO, "VSI bw limit:%u", bw_config.port_bw_limit);
-	PMD_DRV_LOG(INFO, "VSI max_bw:%u", bw_config.max_bw);
+	/* store and print out BW info */
+	vsi->bw_info.bw_limit = rte_le_to_cpu_16(bw_config.port_bw_limit);
+	vsi->bw_info.bw_max = bw_config.max_bw;
+	PMD_DRV_LOG(DEBUG, "VSI bw limit:%u", vsi->bw_info.bw_limit);
+	PMD_DRV_LOG(DEBUG, "VSI max_bw:%u", vsi->bw_info.bw_max);
+	bw_max = rte_le_to_cpu_16(ets_sla_config.tc_bw_max[0]) |
+		    (rte_le_to_cpu_16(ets_sla_config.tc_bw_max[1]) <<
+		     I40E_16_BIT_WIDTH);
 	for (i = 0; i < I40E_MAX_TRAFFIC_CLASS; i++) {
-		PMD_DRV_LOG(INFO, "\tVSI TC%u:share credits %u", i,
-			    ets_sla_config.share_credits[i]);
-		PMD_DRV_LOG(INFO, "\tVSI TC%u:credits %u", i,
-			    rte_le_to_cpu_16(ets_sla_config.credits[i]));
-		PMD_DRV_LOG(INFO, "\tVSI TC%u: max credits: %u", i,
-			    rte_le_to_cpu_16(ets_sla_config.credits[i / 4]) >>
-			    (i * 4));
+		vsi->bw_info.bw_ets_share_credits[i] =
+				ets_sla_config.share_credits[i];
+		vsi->bw_info.bw_ets_credits[i] =
+				rte_le_to_cpu_16(ets_sla_config.credits[i]);
+		/* 4 bits per TC, 4th bit is reserved */
+		vsi->bw_info.bw_ets_max[i] =
+			(uint8_t)((bw_max >> (i * I40E_4_BIT_WIDTH)) &
+				  I40E_3_BIT_MASK);
+		PMD_DRV_LOG(DEBUG, "\tVSI TC%u:share credits %u", i,
+			    vsi->bw_info.bw_ets_share_credits[i]);
+		PMD_DRV_LOG(DEBUG, "\tVSI TC%u:credits %u", i,
+			    vsi->bw_info.bw_ets_credits[i]);
+		PMD_DRV_LOG(DEBUG, "\tVSI TC%u: max credits: %u", i,
+			    vsi->bw_info.bw_ets_max[i]);
 	}
 
-	return 0;
+	return I40E_SUCCESS;
 }
 
 /* Setup a VSI */
@@ -4154,7 +4145,7 @@ i40e_vsi_setup(struct i40e_pf *pf,
 	}
 
 	/* Get VSI BW information */
-	i40e_vsi_dump_bw_config(vsi);
+	i40e_vsi_get_bw_config(vsi);
 	return vsi;
 fail_msix_alloc:
 	i40e_res_pool_free(&pf->msix_pool,vsi->msix_intr);
@@ -5663,9 +5654,14 @@ i40e_set_rss_key(struct i40e_vsi *vsi, uint8_t *key, uint8_t key_len)
 	struct i40e_hw *hw = I40E_VSI_TO_HW(vsi);
 	int ret = 0;
 
-	if (!key || key_len != ((I40E_PFQF_HKEY_MAX_INDEX + 1) *
-		sizeof(uint32_t)))
+	if (!key || key_len == 0) {
+		PMD_DRV_LOG(DEBUG, "No key to be configured");
+		return 0;
+	} else if (key_len != (I40E_PFQF_HKEY_MAX_INDEX + 1) *
+		sizeof(uint32_t)) {
+		PMD_DRV_LOG(ERR, "Invalid key length %u", key_len);
 		return -EINVAL;
+	}
 
 	if (pf->flags & I40E_FLAG_RSS_AQ_CAPABLE) {
 		struct i40e_aqc_get_set_rss_key_data *key_dw =
@@ -8081,70 +8077,6 @@ i40e_parse_dcb_configure(struct rte_eth_dev *dev,
 	return 0;
 }
 
-/*
- * i40e_vsi_get_bw_info - Query VSI BW Information
- * @vsi: the VSI being queried
- *
- * Returns 0 on success, negative value on failure
- */
-static enum i40e_status_code
-i40e_vsi_get_bw_info(struct i40e_vsi *vsi)
-{
-	struct i40e_aqc_query_vsi_ets_sla_config_resp bw_ets_config = {0};
-	struct i40e_aqc_query_vsi_bw_config_resp bw_config = {0};
-	struct i40e_hw *hw = I40E_VSI_TO_HW(vsi);
-	enum i40e_status_code ret;
-	int i;
-	uint32_t tc_bw_max;
-
-	/* Get the VSI level BW configuration */
-	ret = i40e_aq_query_vsi_bw_config(hw, vsi->seid, &bw_config, NULL);
-	if (ret) {
-		PMD_INIT_LOG(ERR,
-			 "couldn't get PF vsi bw config, err %s aq_err %s\n",
-			 i40e_stat_str(hw, ret),
-			 i40e_aq_str(hw, hw->aq.asq_last_status));
-		return ret;
-	}
-
-	/* Get the VSI level BW configuration per TC */
-	ret = i40e_aq_query_vsi_ets_sla_config(hw, vsi->seid, &bw_ets_config,
-						  NULL);
-	if (ret) {
-		PMD_INIT_LOG(ERR,
-			 "couldn't get PF vsi ets bw config, err %s aq_err %s\n",
-			 i40e_stat_str(hw, ret),
-			 i40e_aq_str(hw, hw->aq.asq_last_status));
-		return ret;
-	}
-
-	if (bw_config.tc_valid_bits != bw_ets_config.tc_valid_bits) {
-		PMD_INIT_LOG(WARNING,
-			 "Enabled TCs mismatch from querying VSI BW info"
-			 " 0x%08x 0x%08x\n", bw_config.tc_valid_bits,
-			 bw_ets_config.tc_valid_bits);
-		/* Still continuing */
-	}
-
-	vsi->bw_info.bw_limit = rte_le_to_cpu_16(bw_config.port_bw_limit);
-	vsi->bw_info.bw_max_quanta = bw_config.max_bw;
-	tc_bw_max = rte_le_to_cpu_16(bw_ets_config.tc_bw_max[0]) |
-		    (rte_le_to_cpu_16(bw_ets_config.tc_bw_max[1]) << 16);
-	for (i = 0; i < I40E_MAX_TRAFFIC_CLASS; i++) {
-		vsi->bw_info.bw_ets_share_credits[i] =
-				bw_ets_config.share_credits[i];
-		vsi->bw_info.bw_ets_limit_credits[i] =
-				rte_le_to_cpu_16(bw_ets_config.credits[i]);
-		/* 3 bits out of 4 for each TC */
-		vsi->bw_info.bw_ets_max_quanta[i] =
-			(uint8_t)((tc_bw_max >> (i * 4)) & 0x7);
-		PMD_INIT_LOG(DEBUG,
-			 "%s: vsi seid = %d, TC = %d, qset = 0x%x\n",
-			 __func__, vsi->seid, i, bw_config.qs_handles[i]);
-	}
-
-	return ret;
-}
 
 static enum i40e_status_code
 i40e_vsi_update_queue_mapping(struct i40e_vsi *vsi,
@@ -8278,8 +8210,8 @@ i40e_vsi_config_tc(struct i40e_vsi *vsi, u8 tc_map)
 	vsi->info.mapping_flags = ctxt.info.mapping_flags;
 	vsi->info.valid_sections = 0;
 
-	/* Update current VSI BW information */
-	ret = i40e_vsi_get_bw_info(vsi);
+	/* query and update current VSI BW information */
+	ret = i40e_vsi_get_bw_config(vsi);
 	if (ret) {
 		PMD_INIT_LOG(ERR,
 			 "Failed updating vsi bw info, err %s aq_err %s",
@@ -8316,7 +8248,8 @@ i40e_dcb_hw_configure(struct i40e_pf *pf,
 	uint32_t val;
 
 	/* Use the FW API if FW > v4.4*/
-	if (!((hw->aq.fw_maj_ver == 4) && (hw->aq.fw_min_ver >= 4))) {
+	if (!(((hw->aq.fw_maj_ver == 4) && (hw->aq.fw_min_ver >= 4)) ||
+	      (hw->aq.fw_maj_ver >= 5))) {
 		PMD_INIT_LOG(ERR, "FW < v4.4, can not use FW LLDP API"
 				  " to configure DCB");
 		return I40E_ERR_FIRMWARE_API_VERSION;

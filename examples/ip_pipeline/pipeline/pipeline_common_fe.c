@@ -358,7 +358,7 @@ app_link_config(struct app_params *app,
 		if (link->ip == ip) {
 			APP_LOG(app, HIGH,
 				"%s is already assigned this IP address",
-				p->name);
+				link->name);
 			return -1;
 		}
 	}
@@ -1292,7 +1292,7 @@ app_pipeline_common_cmd_push(struct app_params *app)
 	/* Push pipeline commands into the application */
 	memcpy(&app->cmds[app->n_cmds],
 		pipeline_common_cmds,
-		n_cmds * sizeof(cmdline_parse_ctx_t *));
+		n_cmds * sizeof(cmdline_parse_ctx_t));
 
 	for (i = 0; i < n_cmds; i++)
 		app->cmds[app->n_cmds + i]->data = app;

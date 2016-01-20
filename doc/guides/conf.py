@@ -35,12 +35,17 @@ from sphinx import __version__ as sphinx_version
 from sphinx.highlighting import PygmentsBridge
 from pygments.formatters.latex import LatexFormatter
 
-project = 'DPDK'
+project = 'Data Plane Development Kit'
 
+if LooseVersion(sphinx_version) >= LooseVersion('1.3.1'):
+    html_theme = "sphinx_rtd_theme"
+html_logo = '../logo/DPDK_logo_vertical_rev_small.png'
+latex_logo = '../logo/DPDK_logo_horizontal_tag.png'
+html_add_permalinks = ""
 html_show_copyright = False
 highlight_language = 'none'
 
-version = subprocess.check_output(['make', '-sRrC', '../../', 'showversion']).decode('utf-8')
+version = subprocess.check_output(['make', '-sRrC', '../../', 'showversion']).decode('utf-8').rstrip()
 release = version
 
 master_doc = 'index'
@@ -59,7 +64,6 @@ latex_documents = [
 # Latex directives to be included directly in the latex/pdf docs.
 latex_preamble = r"""
 \usepackage[utf8]{inputenc}
-\usepackage{DejaVuSansMono}
 \usepackage[T1]{fontenc}
 \usepackage{helvet}
 \renewcommand{\familydefault}{\sfdefault}

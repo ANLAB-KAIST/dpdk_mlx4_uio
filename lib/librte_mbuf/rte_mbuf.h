@@ -728,6 +728,9 @@ typedef uint8_t  MARKER8[0];  /**< generic marker with 1B alignment */
 typedef uint64_t MARKER64[0]; /**< marker that allows us to overwrite 8 bytes
                                * with a single assignment */
 
+/** Opaque rte_mbuf_offload  structure declarations */
+struct rte_mbuf_offload;
+
 /**
  * The generic rte_mbuf, containing a packet mbuf.
  */
@@ -799,7 +802,10 @@ struct rte_mbuf {
 			/**< First 4 flexible bytes or FD ID, dependent on
 			     PKT_RX_FDIR_* flag in ol_flags. */
 		} fdir;           /**< Filter identifier if FDIR enabled */
-		uint32_t sched;   /**< Hierarchical scheduler */
+		struct {
+			uint32_t lo;
+			uint32_t hi;
+		} sched;          /**< Hierarchical scheduler */
 		uint32_t usr;	  /**< User defined tags. See rte_distributor_process() */
 	} hash;                   /**< hash information */
 
@@ -841,6 +847,9 @@ struct rte_mbuf {
 
 	/** Timesync flags for use with IEEE1588. */
 	uint16_t timesync;
+
+	/* Chain of off-load operations to perform on mbuf */
+	struct rte_mbuf_offload *offload_ops;
 } __rte_cache_aligned;
 
 static inline uint16_t rte_pktmbuf_priv_size(struct rte_mempool *mp);
@@ -1620,6 +1629,27 @@ static inline struct rte_mbuf *rte_pktmbuf_lastseg(struct rte_mbuf *m)
  *   The type to cast the result into.
  */
 #define rte_pktmbuf_mtod(m, t) rte_pktmbuf_mtod_offset(m, t, 0)
+
+/**
+ * A macro that returns the physical address that points to an offset of the
+ * start of the data in the mbuf
+ *
+ * @param m
+ *   The packet mbuf.
+ * @param o
+ *   The offset into the data to calculate address from.
+ */
+#define rte_pktmbuf_mtophys_offset(m, o) \
+	(phys_addr_t)((m)->buf_physaddr + (m)->data_off + (o))
+
+/**
+ * A macro that returns the physical address that points to the start of the
+ * data in the mbuf
+ *
+ * @param m
+ *   The packet mbuf.
+ */
+#define rte_pktmbuf_mtophys(m) rte_pktmbuf_mtophys_offset(m, 0)
 
 /**
  * A macro that returns the length of the packet.

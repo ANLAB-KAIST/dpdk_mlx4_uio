@@ -31,17 +31,15 @@
 DPDK documentation
 ==================
 
-Contents:
-
 .. toctree::
    :maxdepth: 1
-   :titlesonly:
 
    linux_gsg/index
    freebsd_gsg/index
    xen/index
    prog_guide/index
    nics/index
+   cryptodevs/index
    sample_app_ug/index
    testpmd_app_ug/index
    faq/index

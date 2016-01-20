@@ -31,16 +31,13 @@
 Sample Applications User Guide
 ==============================
 
-|today|
-
-**Contents**
-
 .. toctree::
     :maxdepth: 2
     :numbered:
 
     intro
     cmd_line
+    ethtool
     exception_path
     hello_world
     skeleton
@@ -49,6 +46,7 @@ Sample Applications User Guide
     ipv4_multicast
     ip_reassembly
     kernel_nic_interface
+    keep_alive
     l2_forward_job_stats
     l2_forward_real_virtual
     l3_forward
@@ -74,6 +72,7 @@ Sample Applications User Guide
     tep_termination
     proc_info
     ptpclient
+    performance_thread
 
 **Figures**
 

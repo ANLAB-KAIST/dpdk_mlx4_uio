@@ -887,7 +887,7 @@ rte_eal_intr_init(void)
 		/* Set thread_name for aid in debugging. */
 		snprintf(thread_name, RTE_MAX_THREAD_NAME_LEN,
 			"eal-intr-thread");
-		ret_1 = pthread_setname_np(intr_thread, thread_name);
+		ret_1 = rte_thread_setname(intr_thread, thread_name);
 		if (ret_1 != 0)
 			RTE_LOG(ERR, EAL,
 			"Failed to set thread name for interrupt handling\n");
@@ -901,6 +901,7 @@ eal_intr_proc_rxtx_intr(int fd, const struct rte_intr_handle *intr_handle)
 {
 	union rte_intr_read_buffer buf;
 	int bytes_read = 1;
+	int nbytes;
 
 	switch (intr_handle->type) {
 	case RTE_INTR_HANDLE_UIO:
@@ -925,15 +926,15 @@ eal_intr_proc_rxtx_intr(int fd, const struct rte_intr_handle *intr_handle)
 	 * for epoll_wait.
 	 */
 	do {
-		bytes_read = read(fd, &buf, bytes_read);
-		if (bytes_read < 0) {
+		nbytes = read(fd, &buf, bytes_read);
+		if (nbytes < 0) {
 			if (errno == EINTR || errno == EWOULDBLOCK ||
 			    errno == EAGAIN)
 				continue;
 			RTE_LOG(ERR, EAL,
 				"Error reading from fd %d: %s\n",
 				fd, strerror(errno));
-		} else if (bytes_read == 0)
+		} else if (nbytes == 0)
 			RTE_LOG(ERR, EAL, "Read nothing from fd %d\n", fd);
 		return;
 	} while (1);

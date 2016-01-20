@@ -55,9 +55,6 @@
 #define CHARS_PER_UINT32 (sizeof(uint32_t))
 #define BIT_MASK_PER_UINT32 ((1 << CHARS_PER_UINT32) - 1)
 
-#define FM10K_SIMPLE_TX_FLAG ((uint32_t)ETH_TXQ_FLAGS_NOMULTSEGS | \
-				ETH_TXQ_FLAGS_NOOFFLOADS)
-
 static void fm10k_close_mbx_service(struct fm10k_hw *hw);
 static void fm10k_dev_promiscuous_enable(struct rte_eth_dev *dev);
 static void fm10k_dev_promiscuous_disable(struct rte_eth_dev *dev);
@@ -130,6 +127,65 @@ static void
 fm10k_mbx_unlock(struct fm10k_hw *hw)
 {
 	rte_spinlock_unlock(FM10K_DEV_PRIVATE_TO_MBXLOCK(hw->back));
+}
+
+/* Stubs needed for linkage when vPMD is disabled */
+int __attribute__((weak))
+fm10k_rx_vec_condition_check(__rte_unused struct rte_eth_dev *dev)
+{
+	return -1;
+}
+
+uint16_t __attribute__((weak))
+fm10k_recv_pkts_vec(
+	__rte_unused void *rx_queue,
+	__rte_unused struct rte_mbuf **rx_pkts,
+	__rte_unused uint16_t nb_pkts)
+{
+	return 0;
+}
+
+uint16_t __attribute__((weak))
+fm10k_recv_scattered_pkts_vec(
+		__rte_unused void *rx_queue,
+		__rte_unused struct rte_mbuf **rx_pkts,
+		__rte_unused uint16_t nb_pkts)
+{
+	return 0;
+}
+
+int __attribute__((weak))
+fm10k_rxq_vec_setup(__rte_unused struct fm10k_rx_queue *rxq)
+
+{
+	return -1;
+}
+
+void __attribute__((weak))
+fm10k_rx_queue_release_mbufs_vec(
+		__rte_unused struct fm10k_rx_queue *rxq)
+{
+	return;
+}
+
+void __attribute__((weak))
+fm10k_txq_vec_setup(__rte_unused struct fm10k_tx_queue *txq)
+{
+	return;
+}
+
+int __attribute__((weak))
+fm10k_tx_vec_condition_check(__rte_unused struct fm10k_tx_queue *txq)
+{
+	return -1;
+}
+
+uint16_t __attribute__((weak))
+fm10k_xmit_pkts_vec(__rte_unused void *tx_queue,
+		__rte_unused struct rte_mbuf **tx_pkts,
+		__rte_unused uint16_t nb_pkts)
+{
+	return 0;
 }
 
 /*
@@ -386,7 +442,6 @@ fm10k_check_mq_mode(struct rte_eth_dev *dev)
 }
 
 static const struct fm10k_txq_ops def_txq_ops = {
-	.release_mbufs = tx_queue_free,
 	.reset = tx_queue_reset,
 };
 
@@ -1073,7 +1128,7 @@ fm10k_dev_queue_release(struct rte_eth_dev *dev)
 		for (i = 0; i < dev->data->nb_tx_queues; i++) {
 			struct fm10k_tx_queue *txq = dev->data->tx_queues[i];
 
-			txq->ops->release_mbufs(txq);
+			tx_queue_free(txq);
 		}
 	}
 
@@ -1761,7 +1816,7 @@ fm10k_tx_queue_setup(struct rte_eth_dev *dev, uint16_t queue_id,
 	if (dev->data->tx_queues[queue_id] != NULL) {
 		struct fm10k_tx_queue *txq = dev->data->tx_queues[queue_id];
 
-		txq->ops->release_mbufs(txq);
+		tx_queue_free(txq);
 		dev->data->tx_queues[queue_id] = NULL;
 	}
 
@@ -1836,7 +1891,7 @@ fm10k_tx_queue_release(void *queue)
 	struct fm10k_tx_queue *q = queue;
 	PMD_INIT_FUNC_TRACE();
 
-	q->ops->release_mbufs(q);
+	tx_queue_free(q);
 }
 
 static int
@@ -2395,21 +2450,24 @@ fm10k_set_tx_function(struct rte_eth_dev *dev)
 
 	for (i = 0; i < dev->data->nb_tx_queues; i++) {
 		txq = dev->data->tx_queues[i];
-		if ((txq->txq_flags & FM10K_SIMPLE_TX_FLAG) !=
-			FM10K_SIMPLE_TX_FLAG) {
+		/* Check if Vector Tx is satisfied */
+		if (fm10k_tx_vec_condition_check(txq)) {
 			use_sse = 0;
 			break;
 		}
 	}
 
 	if (use_sse) {
+		PMD_INIT_LOG(DEBUG, "Use vector Tx func");
 		for (i = 0; i < dev->data->nb_tx_queues; i++) {
 			txq = dev->data->tx_queues[i];
 			fm10k_txq_vec_setup(txq);
 		}
 		dev->tx_pkt_burst = fm10k_xmit_pkts_vec;
-	} else
+	} else {
 		dev->tx_pkt_burst = fm10k_xmit_pkts;
+		PMD_INIT_LOG(DEBUG, "Use regular Tx func");
+	}
 }
 
 static void __attribute__((cold))
@@ -2428,10 +2486,17 @@ fm10k_set_rx_function(struct rte_eth_dev *dev)
 			dev->rx_pkt_burst = fm10k_recv_pkts_vec;
 	} else if (dev->data->scattered_rx)
 		dev->rx_pkt_burst = fm10k_recv_scattered_pkts;
+	else
+		dev->rx_pkt_burst = fm10k_recv_pkts;
 
 	rx_using_sse =
 		(dev->rx_pkt_burst == fm10k_recv_scattered_pkts_vec ||
 		dev->rx_pkt_burst == fm10k_recv_pkts_vec);
+
+	if (rx_using_sse)
+		PMD_INIT_LOG(DEBUG, "Use vector Rx func");
+	else
+		PMD_INIT_LOG(DEBUG, "Use regular Rx func");
 
 	for (i = 0; i < dev->data->nb_rx_queues; i++) {
 		struct fm10k_rx_queue *rxq = dev->data->rx_queues[i];

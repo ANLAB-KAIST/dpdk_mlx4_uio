@@ -273,7 +273,7 @@ virtio_dev_queue_release(struct virtqueue *vq) {
 	if (vq) {
 		hw = vq->hw;
 		/* Select and deactivate the queue */
-		VIRTIO_WRITE_REG_2(hw, VIRTIO_PCI_QUEUE_SEL, vq->queue_id);
+		VIRTIO_WRITE_REG_2(hw, VIRTIO_PCI_QUEUE_SEL, vq->vq_queue_index);
 		VIRTIO_WRITE_REG_4(hw, VIRTIO_PCI_QUEUE_PFN, 0);
 
 		rte_free(vq->sw_ring);
@@ -788,8 +788,6 @@ virtio_dev_stats_reset(struct rte_eth_dev *dev)
 		rxvq->broadcast = 0;
 		memset(rxvq->size_bins, 0, sizeof(rxvq->size_bins[0]) * 8);
 	}
-
-	dev->data->rx_mbuf_alloc_failed = 0;
 }
 
 static void
@@ -1289,8 +1287,6 @@ eth_virtio_dev_init(struct rte_eth_dev *eth_dev)
 
 	pci_dev = eth_dev->pci_dev;
 
-	rte_eth_copy_pci_info(eth_dev, pci_dev);
-
 	if (virtio_resource_init(pci_dev) < 0)
 		return -1;
 
@@ -1310,6 +1306,8 @@ eth_virtio_dev_init(struct rte_eth_dev *eth_dev)
 	/* If host does not support status then disable LSC */
 	if (!vtpci_with_feature(hw, VIRTIO_NET_F_STATUS))
 		pci_dev->driver->drv_flags &= ~RTE_PCI_DRV_INTR_LSC;
+
+	rte_eth_copy_pci_info(eth_dev, pci_dev);
 
 	rx_func_get(eth_dev);
 
