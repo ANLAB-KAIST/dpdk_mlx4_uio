@@ -525,3 +525,43 @@ error:
 	return -1;
 }
 
+void eth_dev_void_set_size_generator(unsigned dev_idx, unsigned queue_idx,
+		eth_dev_void_size_generator f, void* aux)
+{
+	struct rte_eth_dev *dev = &rte_eth_devices[dev_idx];
+	struct void_queue* vq = (struct void_queue*)dev->data->rx_queues[queue_idx];
+	vq->size_aux = aux;
+	vq->size_generator = f;
+}
+void eth_dev_void_set_packet_rx_generator(unsigned dev_idx, unsigned queue_idx,
+		eth_dev_void_packet_rx_generator f, void* aux)
+{
+	struct rte_eth_dev *dev = &rte_eth_devices[dev_idx];
+	struct void_queue* vq = (struct void_queue*)dev->data->rx_queues[queue_idx];
+	vq->rx_aux = aux;
+	vq->rx_generator = f;
+}
+void eth_dev_void_set_packet_tx_consumer(unsigned dev_idx, unsigned queue_idx,
+		eth_dev_void_packet_tx_consumer f, void* aux)
+{
+	struct rte_eth_dev *dev = &rte_eth_devices[dev_idx];
+	struct void_queue* vq = (struct void_queue*)dev->data->rx_queues[queue_idx];
+	vq->tx_aux = aux;
+	vq->tx_consumer = f;
+}
+
+unsigned void_default_min_size(void* aux __rte_unused)
+{
+	return 64;
+}
+
+unsigned void_default_max_size(void* aux __rte_unused)
+{
+	return 1514;
+}
+
+void void_default_consumer(const void* data __rte_unused, unsigned length __rte_unused,
+		void* packet_aux __rte_unused, void* aux __rte_unused)
+{
+	return;
+}

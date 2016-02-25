@@ -48,4 +48,9 @@ void eth_dev_void_set_packet_rx_generator(unsigned dev_idx, unsigned queue_idx,
 void eth_dev_void_set_packet_tx_consumer(unsigned dev_idx, unsigned queue_idx,
 		eth_dev_void_packet_tx_consumer f, void* aux);
 
+
+unsigned void_default_min_size(void* aux __rte_unused);
+unsigned void_default_max_size(void* aux __rte_unused);
+void void_default_consumer(const void* data, unsigned length, void* packet_aux, void* aux);
+
 #endif /* RTE_ETH_NULL_H_ */
