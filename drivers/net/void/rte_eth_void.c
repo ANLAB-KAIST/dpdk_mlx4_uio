@@ -41,23 +41,7 @@
 #include <rte_spinlock.h>
 #include <rte_common.h>
 
-typedef unsigned (*eth_dev_void_size_generator)(void* aux);
-typedef void* (*eth_dev_void_packet_rx_generator)(void* buf, unsigned length, void* aux);
-typedef void (*eth_dev_void_packet_tx_consumer)(const void* data, unsigned length, void* packet_aux, void* aux);
-typedef void* (*eth_dev_void_aux_generator)(unsigned dev_idx, unsigned queue_idx, void* dev_aux);
-
-
-enum protocol_type
-{
-	IPv4,
-	IPv6,
-};
-
-struct device_aux
-{
-	enum protocol_type proto_type;
-	unsigned packet_size;
-};
+#include "common.h"
 
 struct pmd_internals;
 
@@ -82,8 +66,8 @@ struct pmd_internals {
 	unsigned nb_rx_queues;
 	unsigned nb_tx_queues;
 
-	struct void_queue rx_null_queues[RTE_MAX_QUEUES_PER_PORT];
-	struct void_queue tx_null_queues[RTE_MAX_QUEUES_PER_PORT];
+	struct void_queue rx_void_queues[RTE_MAX_QUEUES_PER_PORT];
+	struct void_queue tx_void_queues[RTE_MAX_QUEUES_PER_PORT];
 
 	/** Bit mask of RSS offloads, the bit offset also means flow type */
 	uint64_t flow_type_rss_offloads;
@@ -205,9 +189,7 @@ eth_rx_queue_setup(struct rte_eth_dev *dev, uint16_t rx_queue_id,
 		const struct rte_eth_rxconf *rx_conf __rte_unused,
 		struct rte_mempool *mb_pool)
 {
-	//struct rte_mbuf *dummy_packet;
 	struct pmd_internals *internals;
-	//unsigned packet_size;
 
 	if ((dev == NULL) || (mb_pool == NULL))
 		return -EINVAL;
@@ -217,18 +199,14 @@ eth_rx_queue_setup(struct rte_eth_dev *dev, uint16_t rx_queue_id,
 	if (rx_queue_id >= internals->nb_rx_queues)
 		return -ENODEV;
 
-	//packet_size = internals->packet_size;
+	internals->rx_void_queues[rx_queue_id].rx_aux = internals->rx_aux_gen(rx_queue_id, internals->device_aux);
+	internals->rx_void_queues[rx_queue_id].size_aux = internals->size_aux_gen(rx_queue_id, internals->device_aux);
 
-	internals->rx_null_queues[rx_queue_id].mb_pool = mb_pool;
+	internals->rx_void_queues[rx_queue_id].mb_pool = mb_pool;
 	dev->data->rx_queues[rx_queue_id] =
-		&internals->rx_null_queues[rx_queue_id];
-	//dummy_packet = rte_zmalloc_socket(NULL,
-	//		packet_size, 0, internals->numa_node);
-	//if (dummy_packet == NULL)
-	//	return -ENOMEM;
+		&internals->rx_void_queues[rx_queue_id];
 
-	internals->rx_null_queues[rx_queue_id].internals = internals;
-	//internals->rx_null_queues[rx_queue_id].dummy_packet = dummy_packet;
+	internals->rx_void_queues[rx_queue_id].internals = internals;
 
 	return 0;
 }
@@ -239,9 +217,7 @@ eth_tx_queue_setup(struct rte_eth_dev *dev, uint16_t tx_queue_id,
 		unsigned int socket_id __rte_unused,
 		const struct rte_eth_txconf *tx_conf __rte_unused)
 {
-	//struct rte_mbuf *dummy_packet;
 	struct pmd_internals *internals;
-	//unsigned packet_size;
 
 	if (dev == NULL)
 		return -EINVAL;
@@ -251,17 +227,12 @@ eth_tx_queue_setup(struct rte_eth_dev *dev, uint16_t tx_queue_id,
 	if (tx_queue_id >= internals->nb_tx_queues)
 		return -ENODEV;
 
-	//packet_size = internals->packet_size;
+	internals->tx_void_queues[tx_queue_id].tx_aux = internals->tx_aux_gen(tx_queue_id, internals->device_aux);
 
 	dev->data->tx_queues[tx_queue_id] =
-		&internals->tx_null_queues[tx_queue_id];
-	//dummy_packet = rte_zmalloc_socket(NULL,
-	//		packet_size, 0, internals->numa_node);
-	//if (dummy_packet == NULL)
-	//	return -ENOMEM;
+		&internals->tx_void_queues[tx_queue_id];
 
-	internals->tx_null_queues[tx_queue_id].internals = internals;
-	//internals->tx_null_queues[tx_queue_id].dummy_packet = dummy_packet;
+	internals->tx_void_queues[tx_queue_id].internals = internals;
 
 	return 0;
 }
@@ -280,8 +251,8 @@ eth_dev_info(struct rte_eth_dev *dev,
 	dev_info->driver_name = drivername;
 	dev_info->max_mac_addrs = 1;
 	dev_info->max_rx_pktlen = (uint32_t)-1;
-	dev_info->max_rx_queues = RTE_DIM(internals->rx_null_queues);
-	dev_info->max_tx_queues = RTE_DIM(internals->tx_null_queues);
+	dev_info->max_rx_queues = RTE_DIM(internals->rx_void_queues);
+	dev_info->max_tx_queues = RTE_DIM(internals->tx_void_queues);
 	dev_info->min_rx_bufsize = 0;
 	dev_info->pci_dev = NULL;
 	dev_info->reta_size = internals->reta_size;
@@ -301,21 +272,21 @@ eth_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *igb_stats)
 	internal = dev->data->dev_private;
 	num_stats = RTE_MIN((unsigned)RTE_ETHDEV_QUEUE_STAT_CNTRS,
 			RTE_MIN(internal->nb_rx_queues,
-				RTE_DIM(internal->rx_null_queues)));
+				RTE_DIM(internal->rx_void_queues)));
 	for (i = 0; i < num_stats; i++) {
 		igb_stats->q_ipackets[i] =
-			internal->rx_null_queues[i].rx_pkts.cnt;
+			internal->rx_void_queues[i].rx_pkts.cnt;
 		rx_total += igb_stats->q_ipackets[i];
 	}
 
 	num_stats = RTE_MIN((unsigned)RTE_ETHDEV_QUEUE_STAT_CNTRS,
 			RTE_MIN(internal->nb_tx_queues,
-				RTE_DIM(internal->tx_null_queues)));
+				RTE_DIM(internal->tx_void_queues)));
 	for (i = 0; i < num_stats; i++) {
 		igb_stats->q_opackets[i] =
-			internal->tx_null_queues[i].tx_pkts.cnt;
+			internal->tx_void_queues[i].tx_pkts.cnt;
 		igb_stats->q_errors[i] =
-			internal->tx_null_queues[i].err_pkts.cnt;
+			internal->tx_void_queues[i].err_pkts.cnt;
 		tx_total += igb_stats->q_opackets[i];
 		tx_err_total += igb_stats->q_errors[i];
 	}
@@ -335,11 +306,11 @@ eth_stats_reset(struct rte_eth_dev *dev)
 		return;
 
 	internal = dev->data->dev_private;
-	for (i = 0; i < RTE_DIM(internal->rx_null_queues); i++)
-		internal->rx_null_queues[i].rx_pkts.cnt = 0;
-	for (i = 0; i < RTE_DIM(internal->tx_null_queues); i++) {
-		internal->tx_null_queues[i].tx_pkts.cnt = 0;
-		internal->tx_null_queues[i].err_pkts.cnt = 0;
+	for (i = 0; i < RTE_DIM(internal->rx_void_queues); i++)
+		internal->rx_void_queues[i].rx_pkts.cnt = 0;
+	for (i = 0; i < RTE_DIM(internal->tx_void_queues); i++) {
+		internal->tx_void_queues[i].tx_pkts.cnt = 0;
+		internal->tx_void_queues[i].err_pkts.cnt = 0;
 	}
 }
 
@@ -481,7 +452,7 @@ eth_dev_void_create(const char *name, const unsigned numa_node, const struct dev
 	if (name == NULL)
 		return -EINVAL;
 
-	RTE_LOG(INFO, PMD, "Creating null ethdev on numa socket %u\n",
+	RTE_LOG(INFO, PMD, "Creating void ethdev on numa socket %u\n",
 			numa_node);
 
 	/* now do all data allocation - for eth_dev structure, dummy pci driver
@@ -514,6 +485,16 @@ eth_dev_void_create(const char *name, const unsigned numa_node, const struct dev
 	internals->numa_node = numa_node;
 	internals->device_aux = rte_malloc_socket(NULL, sizeof(struct device_aux), 0, numa_node);
 	rte_memcpy(internals->device_aux, aux, sizeof(struct device_aux));
+
+	if(aux->proto_type == IPv4)
+		internals->rx_generator = void_default_rx_ipv4;
+	else if(aux->proto_type == IPv6)
+		internals->rx_generator = void_default_rx_ipv6;
+	internals->size_generator = void_fixed_size;
+	internals->tx_consumer = void_tx_nothing;
+	internals->size_aux_gen = void_aux_generator;
+	internals->rx_aux_gen = void_aux_generator;
+	internals->tx_aux_gen = void_aux_generator;
 
 	internals->flow_type_rss_offloads =  ETH_RSS_PROTO_MASK;
 	internals->reta_size = RTE_DIM(internals->reta_conf) * RTE_RETA_GROUP_SIZE;
@@ -579,11 +560,11 @@ static const char *valid_arguments[] = {
 static int
 rte_pmd_void_devinit(const char *name, const char *params)
 {
-	unsigned numa_node = 0;
 	struct rte_kvargs *kvlist = NULL;
 	int ret;
 	char str_temp[MAX_ARG];
 	struct device_aux dev_aux;
+	dev_aux.numa_node = 0;
 	dev_aux.packet_size = 64;
 	dev_aux.proto_type = IPv4;
 
@@ -605,7 +586,7 @@ rte_pmd_void_devinit(const char *name, const char *params)
 			if (ret < 0)
 				goto free_kvlist;
 
-			numa_node = strtoul(str_temp, 0, 0);
+			dev_aux.numa_node = strtoul(str_temp, 0, 0);
 		}
 
 		if (rte_kvargs_count(kvlist, "protocol") == 1) {
@@ -645,8 +626,8 @@ rte_pmd_void_devinit(const char *name, const char *params)
 		}
 	}
 
-	RTE_LOG(INFO, PMD, "device[%s] node is set to %u\n", name, numa_node);
-	ret = eth_dev_void_create(name, numa_node, &dev_aux);
+	RTE_LOG(INFO, PMD, "device[%s] node is set to %u\n", name, dev_aux.numa_node);
+	ret = eth_dev_void_create(name, dev_aux.numa_node, &dev_aux);
 
 free_kvlist:
 	if (kvlist)

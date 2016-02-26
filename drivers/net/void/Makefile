@@ -47,6 +47,7 @@ LIBABIVER := 1
 # all source are stored in SRCS-y
 #
 SRCS-$(CONFIG_RTE_LIBRTE_PMD_NULL) += rte_eth_void.c
+SRCS-$(CONFIG_RTE_LIBRTE_PMD_NULL) += common.c
 
 #
 # Export include files
