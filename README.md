@@ -37,6 +37,10 @@ Our driver supports scatter-gather functionality just like other DPDK drivers.
 VLAN support is implemented based on the kernel driver, but not tested.
 Checksum offloading and timestamping are partially implemented.
 
+## Void PMD (void)
+void PMD is an extension of null PMD with packet generating options.
+e.g. "--vdev eth_void0,node=0,size=64,protocol=ipv4"
+
 ##LICENSE
 Our driver is based on Mellanox's kernel driver source code (BSD/GPLv2).
 However, our kernel compatibility layer is based on Linux's source code (GPLv2).
