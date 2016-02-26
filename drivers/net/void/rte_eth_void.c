@@ -615,7 +615,7 @@ rte_pmd_void_devinit(const char *name, const char *params)
 		if (rte_kvargs_count(kvlist, "size") == 1) {
 
 			ret = rte_kvargs_process(kvlist,
-					"protocol",
+					"size",
 					get_string_arg, str_temp);
 			if (ret < 0)
 				goto free_kvlist;
