@@ -41,6 +41,24 @@
 #include <rte_kvargs.h>
 #include <rte_spinlock.h>
 
+typedef unsigned (*eth_dev_void_size_generator)(void* aux);
+typedef void* (*eth_dev_void_packet_rx_generator)(void* buf, unsigned length, void* aux);
+typedef void (*eth_dev_void_packet_tx_consumer)(const void* data, unsigned length, void* packet_aux, void* aux);
+typedef void* (*eth_dev_void_aux_generator)(unsigned dev_idx, unsigned queue_idx, void* dev_aux);
+
+
+enum protocol_type
+{
+	IPv4,
+	IPv6,
+};
+
+struct device_aux
+{
+	enum protocol_type proto_type;
+	unsigned packet_size;
+};
+
 struct pmd_internals;
 
 struct void_queue {
@@ -52,11 +70,9 @@ struct void_queue {
 	rte_atomic64_t tx_pkts;
 	rte_atomic64_t err_pkts;
 
-	eth_dev_void_size_generator size_generator;
+
 	void* size_aux;
-	eth_dev_void_packet_rx_generator rx_generator;
 	void* rx_aux;
-	eth_dev_void_packet_tx_consumer tx_consumer;
 	void* tx_aux;
 };
 
@@ -79,6 +95,16 @@ struct pmd_internals {
 			RTE_RETA_GROUP_SIZE];
 
 	uint8_t rss_key[40];                /**< 40-byte hash key. */
+
+	eth_dev_void_size_generator size_generator;
+	eth_dev_void_packet_rx_generator rx_generator;
+	eth_dev_void_packet_tx_consumer tx_consumer;
+
+	eth_dev_void_aux_generator size_aux_gen;
+	eth_dev_void_aux_generator rx_aux_gen;
+	eth_dev_void_aux_generator tx_aux_gen;
+
+	void* device_aux;
 };
 
 
@@ -91,7 +117,7 @@ static struct rte_eth_link pmd_link = {
 };
 
 static uint16_t
-eth_null_rx(void *q, struct rte_mbuf **bufs, uint16_t nb_bufs)
+eth_void_rx(void *q, struct rte_mbuf **bufs, uint16_t nb_bufs)
 {
 	int i;
 	struct void_queue *h = q;
@@ -104,14 +130,14 @@ eth_null_rx(void *q, struct rte_mbuf **bufs, uint16_t nb_bufs)
 		bufs[i] = rte_pktmbuf_alloc(h->mb_pool);
 		if (!bufs[i])
 			break;
-		packet_size = h->size_generator(h->size_aux);
+		packet_size = h->internals->size_generator(h->size_aux);
 		bufs[i]->data_len = (uint16_t)packet_size;
 		bufs[i]->pkt_len = packet_size;
 		bufs[i]->nb_segs = 1;
 		bufs[i]->next = NULL;
 
 		void* buf = rte_pktmbuf_mtod(bufs[i], void*);
-		void* ret = h->rx_generator(buf, packet_size, h->rx_aux);
+		void* ret = h->internals->rx_generator(buf, packet_size, h->rx_aux);
 		bufs[i]->userdata = ret;
 	}
 
@@ -121,7 +147,7 @@ eth_null_rx(void *q, struct rte_mbuf **bufs, uint16_t nb_bufs)
 }
 
 static uint16_t
-eth_null_tx(void *q, struct rte_mbuf **bufs, uint16_t nb_bufs)
+eth_void_tx(void *q, struct rte_mbuf **bufs, uint16_t nb_bufs)
 {
 	int i;
 	struct void_queue *h = q;
@@ -133,7 +159,7 @@ eth_null_tx(void *q, struct rte_mbuf **bufs, uint16_t nb_bufs)
 	{
 		void* buf = rte_pktmbuf_mtod(bufs[i], void*);
 		unsigned len = rte_pktmbuf_pkt_len(bufs[i]);
-		h->tx_consumer(buf, len, bufs[i]->userdata, h->tx_aux);
+		h->internals->tx_consumer(buf, len, bufs[i]->userdata, h->tx_aux);
 		rte_pktmbuf_free(bufs[i]);
 	}
 
@@ -437,7 +463,7 @@ static const struct eth_dev_ops ops = {
 };
 
 int
-eth_dev_void_create(const char *name, const unsigned numa_node)
+eth_dev_void_create(const char *name, const unsigned numa_node, const struct device_aux* aux)
 {
 	const unsigned nb_rx_queues = 1;
 	const unsigned nb_tx_queues = 1;
@@ -486,6 +512,8 @@ eth_dev_void_create(const char *name, const unsigned numa_node)
 	internals->nb_rx_queues = nb_rx_queues;
 	internals->nb_tx_queues = nb_tx_queues;
 	internals->numa_node = numa_node;
+	internals->device_aux = rte_malloc_socket(NULL, sizeof(struct device_aux), 0, numa_node);
+	rte_memcpy(internals->device_aux, aux, sizeof(struct device_aux));
 
 	internals->flow_type_rss_offloads =  ETH_RSS_PROTO_MASK;
 	internals->reta_size = RTE_DIM(internals->reta_conf) * RTE_RETA_GROUP_SIZE;
@@ -513,8 +541,8 @@ eth_dev_void_create(const char *name, const unsigned numa_node)
 
 	/* finally assign rx and tx ops */
 
-	eth_dev->rx_pkt_burst = eth_null_rx;
-	eth_dev->tx_pkt_burst = eth_null_tx;
+	eth_dev->rx_pkt_burst = eth_void_rx;
+	eth_dev->tx_pkt_burst = eth_void_tx;
 
 	return 0;
 
@@ -525,43 +553,136 @@ error:
 	return -1;
 }
 
-void eth_dev_void_set_size_generator(unsigned dev_idx, unsigned queue_idx,
-		eth_dev_void_size_generator f, void* aux)
+#define MAX_ARG 1024
+
+static inline int
+get_string_arg(const char *key __rte_unused,
+		const char *value, void *extra_args)
 {
-	struct rte_eth_dev *dev = &rte_eth_devices[dev_idx];
-	struct void_queue* vq = (struct void_queue*)dev->data->rx_queues[queue_idx];
-	vq->size_aux = aux;
-	vq->size_generator = f;
-}
-void eth_dev_void_set_packet_rx_generator(unsigned dev_idx, unsigned queue_idx,
-		eth_dev_void_packet_rx_generator f, void* aux)
-{
-	struct rte_eth_dev *dev = &rte_eth_devices[dev_idx];
-	struct void_queue* vq = (struct void_queue*)dev->data->rx_queues[queue_idx];
-	vq->rx_aux = aux;
-	vq->rx_generator = f;
-}
-void eth_dev_void_set_packet_tx_consumer(unsigned dev_idx, unsigned queue_idx,
-		eth_dev_void_packet_tx_consumer f, void* aux)
-{
-	struct rte_eth_dev *dev = &rte_eth_devices[dev_idx];
-	struct void_queue* vq = (struct void_queue*)dev->data->rx_queues[queue_idx];
-	vq->tx_aux = aux;
-	vq->tx_consumer = f;
+	char *buffer = extra_args;
+
+	if ((value == NULL) || (extra_args == NULL))
+		return -EINVAL;
+
+	strncpy(buffer, value, MAX_ARG);
+
+	return 0;
 }
 
-unsigned void_default_min_size(void* aux __rte_unused)
+static const char *valid_arguments[] = {
+	"size",
+	"protocol",
+	"node",
+	NULL
+};
+
+static int
+rte_pmd_void_devinit(const char *name, const char *params)
 {
-	return 64;
+	unsigned numa_node = 0;
+	struct rte_kvargs *kvlist = NULL;
+	int ret;
+	char str_temp[MAX_ARG];
+	struct device_aux dev_aux;
+	dev_aux.packet_size = 64;
+	dev_aux.proto_type = IPv4;
+
+	if (name == NULL)
+		return -EINVAL;
+
+	RTE_LOG(INFO, PMD, "Initializing pmd_null for %s\n", name);
+
+	if (params != NULL) {
+		kvlist = rte_kvargs_parse(params, valid_arguments);
+		if (kvlist == NULL)
+			return -1;
+
+		if (rte_kvargs_count(kvlist, "node") == 1) {
+
+			ret = rte_kvargs_process(kvlist,
+					"node",
+					get_string_arg, str_temp);
+			if (ret < 0)
+				goto free_kvlist;
+
+			numa_node = strtoul(str_temp, 0, 0);
+		}
+
+		if (rte_kvargs_count(kvlist, "protocol") == 1) {
+
+			ret = rte_kvargs_process(kvlist,
+					"protocol",
+					get_string_arg, str_temp);
+			if (ret < 0)
+				goto free_kvlist;
+
+			if(strncmp(str_temp, "ipv4", MAX_ARG) == 0)
+			{
+				dev_aux.proto_type = IPv4;
+			}
+			else if(strncmp(str_temp, "ipv6", MAX_ARG) == 0)
+			{
+				dev_aux.proto_type = IPv6;
+			}
+			else
+			{
+				RTE_LOG(INFO, PMD, "Unsupported protocol type: %s\n", str_temp);
+				goto free_kvlist;
+			}
+		}
+
+		if (rte_kvargs_count(kvlist, "size") == 1) {
+
+			ret = rte_kvargs_process(kvlist,
+					"protocol",
+					get_string_arg, str_temp);
+			if (ret < 0)
+				goto free_kvlist;
+
+			dev_aux.packet_size = strtoul(str_temp, 0, 0);
+			dev_aux.packet_size = RTE_MIN(dev_aux.packet_size, 1514);
+			dev_aux.packet_size = RTE_MAX(dev_aux.packet_size, 64);
+		}
+	}
+
+	RTE_LOG(INFO, PMD, "device[%s] node is set to %u\n", name, numa_node);
+	ret = eth_dev_void_create(name, numa_node);
+
+free_kvlist:
+	if (kvlist)
+		rte_kvargs_free(kvlist);
+	return ret;
 }
 
-unsigned void_default_max_size(void* aux __rte_unused)
+static int
+rte_pmd_void_devuninit(const char *name)
 {
-	return 1514;
+	struct rte_eth_dev *eth_dev = NULL;
+
+	if (name == NULL)
+		return -EINVAL;
+
+	RTE_LOG(INFO, PMD, "Closing void ethdev on numa socket %u\n",
+			rte_socket_id());
+
+	/* find the ethdev entry */
+	eth_dev = rte_eth_dev_allocated(name);
+	if (eth_dev == NULL)
+		return -1;
+
+	rte_free(eth_dev->data->dev_private);
+	rte_free(eth_dev->data);
+
+	rte_eth_dev_release_port(eth_dev);
+
+	return 0;
 }
 
-void void_default_consumer(const void* data __rte_unused, unsigned length __rte_unused,
-		void* packet_aux __rte_unused, void* aux __rte_unused)
-{
-	return;
-}
+static struct rte_driver pmd_void_drv = {
+	.name = "eth_void",
+	.type = PMD_VDEV,
+	.init = rte_pmd_void_devinit,
+	.uninit = rte_pmd_void_devuninit,
+};
+
+PMD_REGISTER_DRIVER(pmd_void_drv);

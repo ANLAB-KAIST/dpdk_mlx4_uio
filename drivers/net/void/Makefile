@@ -51,7 +51,7 @@ SRCS-$(CONFIG_RTE_LIBRTE_PMD_NULL) += rte_eth_void.c
 #
 # Export include files
 #
-SYMLINK-y-include += rte_eth_void.h
+#SYMLINK-y-include += rte_eth_void.h
 
 # this lib depends upon:
 DEPDIRS-$(CONFIG_RTE_LIBRTE_PMD_NULL) += lib/librte_mbuf
