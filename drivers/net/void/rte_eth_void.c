@@ -31,7 +31,6 @@
  *   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "rte_eth_void.h"
 
 #include <rte_mbuf.h>
 #include <rte_ethdev.h>
@@ -40,6 +39,7 @@
 #include <rte_dev.h>
 #include <rte_kvargs.h>
 #include <rte_spinlock.h>
+#include <rte_common.h>
 
 typedef unsigned (*eth_dev_void_size_generator)(void* aux);
 typedef void* (*eth_dev_void_packet_rx_generator)(void* buf, unsigned length, void* aux);
@@ -462,7 +462,7 @@ static const struct eth_dev_ops ops = {
 	.rss_hash_conf_get = eth_rss_hash_conf_get
 };
 
-int
+static int
 eth_dev_void_create(const char *name, const unsigned numa_node, const struct device_aux* aux)
 {
 	const unsigned nb_rx_queues = 1;
@@ -640,13 +640,13 @@ rte_pmd_void_devinit(const char *name, const char *params)
 				goto free_kvlist;
 
 			dev_aux.packet_size = strtoul(str_temp, 0, 0);
-			dev_aux.packet_size = RTE_MIN(dev_aux.packet_size, 1514);
-			dev_aux.packet_size = RTE_MAX(dev_aux.packet_size, 64);
+			dev_aux.packet_size = RTE_MIN(dev_aux.packet_size, 1514u);
+			dev_aux.packet_size = RTE_MAX(dev_aux.packet_size, 64u);
 		}
 	}
 
 	RTE_LOG(INFO, PMD, "device[%s] node is set to %u\n", name, numa_node);
-	ret = eth_dev_void_create(name, numa_node);
+	ret = eth_dev_void_create(name, numa_node, &dev_aux);
 
 free_kvlist:
 	if (kvlist)
