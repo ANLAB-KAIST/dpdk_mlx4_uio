@@ -40,8 +40,11 @@
 #include <rte_kvargs.h>
 #include <rte_spinlock.h>
 #include <rte_common.h>
+#include <stdio.h>
+#include <assert.h>
 
 #include "common.h"
+#include "trace.h"
 
 struct pmd_internals;
 
@@ -486,11 +489,18 @@ eth_dev_void_create(const char *name, const unsigned numa_node, const struct dev
 	internals->device_aux = rte_malloc_socket(NULL, sizeof(struct device_aux), 0, numa_node);
 	rte_memcpy(internals->device_aux, aux, sizeof(struct device_aux));
 
+	internals->size_generator = void_fixed_size;
 	if(aux->proto_type == IPv4)
 		internals->rx_generator = void_default_rx_ipv4;
 	else if(aux->proto_type == IPv6)
 		internals->rx_generator = void_default_rx_ipv6;
-	internals->size_generator = void_fixed_size;
+	else if(aux->proto_type == TRACE)
+	{
+		internals->rx_generator = void_pcap_rx;
+		internals->size_generator = void_pcap_size;
+	}
+
+
 	internals->tx_consumer = void_tx_nothing;
 	internals->size_aux_gen = void_aux_generator;
 	internals->rx_aux_gen = void_aux_generator;
@@ -554,6 +564,7 @@ static const char *valid_arguments[] = {
 	"size",
 	"protocol",
 	"node",
+	"trace",
 	NULL
 };
 
@@ -567,6 +578,10 @@ rte_pmd_void_devinit(const char *name, const char *params)
 	dev_aux.numa_node = 0;
 	dev_aux.packet_size = 64;
 	dev_aux.proto_type = IPv4;
+	dev_aux.trace = NULL;
+	dev_aux.trace_end = NULL;
+
+	FILE* trace = NULL;
 
 	if (name == NULL)
 		return -EINVAL;
@@ -605,9 +620,14 @@ rte_pmd_void_devinit(const char *name, const char *params)
 			{
 				dev_aux.proto_type = IPv6;
 			}
+			else if(strncmp(str_temp, "trace", MAX_ARG) == 0)
+			{
+				dev_aux.proto_type = TRACE;
+			}
 			else
 			{
 				RTE_LOG(INFO, PMD, "Unsupported protocol type: %s\n", str_temp);
+				ret = -EINVAL;
 				goto free_kvlist;
 			}
 		}
@@ -624,6 +644,45 @@ rte_pmd_void_devinit(const char *name, const char *params)
 			dev_aux.packet_size = RTE_MIN(dev_aux.packet_size, 1514u);
 			dev_aux.packet_size = RTE_MAX(dev_aux.packet_size, 64u);
 		}
+
+		if (rte_kvargs_count(kvlist, "trace") == 1) {
+
+			ret = rte_kvargs_process(kvlist,
+					"trace",
+					get_string_arg, str_temp);
+			if (ret < 0)
+				goto free_kvlist;
+
+			trace = fopen(str_temp, "rb");
+		}
+	}
+
+	if(trace != NULL)
+	{
+		if(dev_aux.proto_type != TRACE)
+		{
+			RTE_LOG(INFO, PMD, "Protocol is not TRACE\n");
+			ret = -EINVAL;
+			goto free_kvlist;
+		}
+		fseek(trace, 0L, SEEK_END);
+		size_t length = ftell(trace);
+		void* buf = rte_malloc_socket("PCAP TRACE", length, RTE_CACHE_LINE_SIZE, dev_aux.numa_node);
+		assert(buf != NULL);
+		fseek(trace, 0L, SEEK_SET);
+
+		int _ret = fread(buf, length, 1, trace);
+		assert(_ret == 1);
+		dev_aux.trace = buf;
+		dev_aux.trace_end = RTE_PTR_ADD(buf, length);
+		fclose(trace);
+		trace = NULL;
+	}
+	else if(dev_aux.proto_type == TRACE)
+	{
+		RTE_LOG(INFO, PMD, "Trace file is not given\n");
+		ret = -EINVAL;
+		goto free_kvlist;
 	}
 
 	RTE_LOG(INFO, PMD, "device[%s] node is set to %u\n", name, dev_aux.numa_node);

@@ -7,6 +7,7 @@
 
 
 #include "common.h"
+#include "trace.h"
 #include <rte_malloc.h>
 #include <rte_common.h>
 #include <rte_memcpy.h>
@@ -25,6 +26,21 @@ void* void_aux_generator(unsigned queue_idx __rte_unused, void* dev_aux)
 	aux_ret->random_seed = rte_rand();
 	initstate_r(aux_ret->random_seed, aux_ret->_random_state, RANDOM_STATE_LEN, &aux_ret->rand_data);
 
+	if(aux->trace)
+	{
+		const void* start = 0;
+		int byteorder = pcap_begin(aux->trace, &start);
+		aux_ret->trace_byteorder = byteorder;
+		aux_ret->trace_ptr = aux_ret->trace_start = start;
+		aux_ret->trace_end = aux->trace_end;
+	}
+	else
+	{
+		aux_ret->trace_start = NULL;
+		aux_ret->trace_ptr = NULL;
+		aux_ret->trace_end = NULL;
+		aux_ret->trace_byteorder = 0;
+	}
 	return aux_ret;
 }
 

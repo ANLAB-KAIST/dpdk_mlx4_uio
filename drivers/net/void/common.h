@@ -20,6 +20,7 @@ enum protocol_type
 {
 	IPv4,
 	IPv6,
+	TRACE,
 };
 
 #define RANDOM_STATE_LEN 128
@@ -31,6 +32,8 @@ struct device_aux
 	enum protocol_type proto_type;
 	unsigned packet_size;
 	unsigned numa_node;
+	const void* trace;
+	const void* trace_end;
 };
 
 struct queue_aux
@@ -39,6 +42,10 @@ struct queue_aux
 	uint64_t random_seed;
 	char _random_state[RANDOM_STATE_LEN];
 	struct random_data rand_data;
+	const void* trace_ptr;
+	const void* trace_start;
+	const void* trace_end;
+	int trace_byteorder;
 };
 
 void* void_aux_generator(unsigned queue_idx, void* dev_aux);

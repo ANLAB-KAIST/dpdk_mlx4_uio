@@ -6,6 +6,7 @@
  */
 
 #include "trace.h"
+#include "common.h"
 #include <stdint.h>
 #include <rte_byteorder.h>
 #include <rte_common.h>
@@ -55,6 +56,21 @@ int pcap_begin(const void* content, const void** next)
 	return ret;
 }
 
+unsigned pcap_current_length(const void* const * next, int endian)
+{
+	const struct pcap_packet_header* hdr = *next;
+	unsigned orig_length = 0;
+	if(endian == 0)
+	{
+		orig_length = hdr->orig_len;
+	}
+	else if(endian == 1)
+	{
+		orig_length = rte_bswap32(hdr->orig_len);
+	}
+	return orig_length;
+}
+
 unsigned pcap_next(void* buffer, unsigned buffer_len,
 		struct random_data* random_data, const void** next, int endian)
 {
@@ -90,4 +106,19 @@ unsigned pcap_next(void* buffer, unsigned buffer_len,
 	memset(rem, fill, rem_len);
 
 	return orig_length;
+}
+
+unsigned void_pcap_size(void* aux)
+{
+	struct queue_aux* queue_aux = (struct queue_aux*)aux;
+	return pcap_current_length(&queue_aux->trace_ptr, queue_aux->trace_byteorder);
+}
+
+void* void_pcap_rx(void* buf, unsigned length, void* aux)
+{
+	struct queue_aux* queue_aux = (struct queue_aux*)aux;
+	pcap_next(buf, length, &queue_aux->rand_data, &queue_aux->trace_ptr, queue_aux->trace_byteorder);
+	if(queue_aux->trace_ptr == queue_aux->trace_end)
+		queue_aux->trace_ptr = queue_aux->trace_start;
+	return NULL;
 }
