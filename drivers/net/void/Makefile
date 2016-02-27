@@ -48,6 +48,7 @@ LIBABIVER := 1
 #
 SRCS-$(CONFIG_RTE_LIBRTE_PMD_NULL) += rte_eth_void.c
 SRCS-$(CONFIG_RTE_LIBRTE_PMD_NULL) += common.c
+SRCS-$(CONFIG_RTE_LIBRTE_PMD_NULL) += trace.c
 
 #
 # Export include files
