@@ -57,7 +57,7 @@ struct void_queue {
 	rte_atomic64_t tx_pkts;
 	rte_atomic64_t err_pkts;
 
-
+	uint8_t in_port;
 	void* size_aux;
 	void* rx_aux;
 	void* tx_aux;
@@ -126,6 +126,8 @@ eth_void_rx(void *q, struct rte_mbuf **bufs, uint16_t nb_bufs)
 		void* buf = rte_pktmbuf_mtod(bufs[i], void*);
 		void* ret = h->internals->rx_generator(buf, packet_size, h->rx_aux);
 		bufs[i]->userdata = ret;
+		bufs[i]->port = h->in_port;
+
 	}
 
 	rte_atomic64_add(&(h->rx_pkts), i);
@@ -210,6 +212,7 @@ eth_rx_queue_setup(struct rte_eth_dev *dev, uint16_t rx_queue_id,
 		&internals->rx_void_queues[rx_queue_id];
 
 	internals->rx_void_queues[rx_queue_id].internals = internals;
+	internals->rx_void_queues[rx_queue_id].in_port = dev->data->port_id;
 
 	return 0;
 }
