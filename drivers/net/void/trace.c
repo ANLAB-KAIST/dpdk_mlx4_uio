@@ -60,11 +60,11 @@ unsigned pcap_current_length(const void* const * next, int endian)
 {
 	const struct pcap_packet_header* hdr = *next;
 	unsigned orig_length = 0;
-	if(endian == 0)
+	if(endian == 1)
 	{
 		orig_length = hdr->orig_len;
 	}
-	else if(endian == 1)
+	else if(endian == 0)
 	{
 		orig_length = rte_bswap32(hdr->orig_len);
 	}
@@ -78,12 +78,12 @@ unsigned pcap_next(void* buffer, unsigned buffer_len,
 	const void* content = (const void*)(hdr+1);
 	unsigned incl_length = 0;
 	unsigned orig_length = 0;
-	if(endian == 0)
+	if(endian == 1)
 	{
 		incl_length = hdr->incl_len;
 		orig_length = hdr->orig_len;
 	}
-	else if(endian == 1)
+	else if(endian == 0)
 	{
 		incl_length = rte_bswap32(hdr->incl_len);
 		orig_length = rte_bswap32(hdr->orig_len);
