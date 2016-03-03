@@ -32,6 +32,8 @@ struct device_aux
 	enum protocol_type proto_type;
 	unsigned packet_size;
 	unsigned numa_node;
+	int slow_read;
+	int slow_write;
 	const void* trace;
 	const void* trace_end;
 };

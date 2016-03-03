@@ -61,6 +61,7 @@ struct void_queue {
 	void* size_aux;
 	void* rx_aux;
 	void* tx_aux;
+	void* general_aux;
 };
 
 struct pmd_internals {
@@ -113,7 +114,18 @@ eth_void_rx(void *q, struct rte_mbuf **bufs, uint16_t nb_bufs)
 	if ((q == NULL) || (bufs == NULL))
 		return 0;
 
+	int breakpoint = nb_bufs;
+	struct queue_aux* general_aux = h->general_aux;
+	if(general_aux->device_aux.slow_read)
+	{
+		int32_t rand_val;
+		random_r(&general_aux->rand_data, &rand_val);
+		breakpoint = rand_val % (nb_bufs * 2);
+	}
+
 	for (i = 0; i < nb_bufs; i++) {
+		if(i == breakpoint)
+			break;
 		bufs[i] = rte_pktmbuf_alloc(h->mb_pool);
 		if (!bufs[i])
 			break;
@@ -144,8 +156,19 @@ eth_void_tx(void *q, struct rte_mbuf **bufs, uint16_t nb_bufs)
 	if ((q == NULL) || (bufs == NULL))
 		return 0;
 
+	int breakpoint = nb_bufs;
+	struct queue_aux* general_aux = h->general_aux;
+	if(general_aux->device_aux.slow_write)
+	{
+		int32_t rand_val;
+		random_r(&general_aux->rand_data, &rand_val);
+		breakpoint = rand_val % (nb_bufs * 2);
+	}
+
 	for (i = 0; i < nb_bufs; i++)
 	{
+		if(i == breakpoint)
+			break;
 		void* buf = rte_pktmbuf_mtod(bufs[i], void*);
 		unsigned len = rte_pktmbuf_pkt_len(bufs[i]);
 		h->internals->tx_consumer(buf, len, bufs[i]->userdata, h->tx_aux);
@@ -203,7 +226,7 @@ eth_rx_queue_setup(struct rte_eth_dev *dev, uint16_t rx_queue_id,
 
 	if (rx_queue_id >= internals->nb_rx_queues)
 		return -ENODEV;
-
+	internals->rx_void_queues[rx_queue_id].general_aux = void_aux_generator(rx_queue_id, internals->device_aux);
 	internals->rx_void_queues[rx_queue_id].rx_aux = internals->rx_aux_gen(rx_queue_id, internals->device_aux);
 	internals->rx_void_queues[rx_queue_id].size_aux = internals->size_aux_gen(rx_queue_id, internals->device_aux);
 
@@ -233,6 +256,7 @@ eth_tx_queue_setup(struct rte_eth_dev *dev, uint16_t tx_queue_id,
 	if (tx_queue_id >= internals->nb_tx_queues)
 		return -ENODEV;
 
+	internals->tx_void_queues[tx_queue_id].general_aux = void_aux_generator(tx_queue_id, internals->device_aux);
 	internals->tx_void_queues[tx_queue_id].tx_aux = internals->tx_aux_gen(tx_queue_id, internals->device_aux);
 
 	dev->data->tx_queues[tx_queue_id] =
@@ -568,6 +592,7 @@ static const char *valid_arguments[] = {
 	"protocol",
 	"node",
 	"trace",
+	"slow",
 	NULL
 };
 
@@ -581,6 +606,8 @@ rte_pmd_void_devinit(const char *name, const char *params)
 	dev_aux.numa_node = 0;
 	dev_aux.packet_size = 64;
 	dev_aux.proto_type = IPv4;
+	dev_aux.slow_read = 0;
+	dev_aux.slow_write = 0;
 	dev_aux.trace = NULL;
 	dev_aux.trace_end = NULL;
 
@@ -657,6 +684,19 @@ rte_pmd_void_devinit(const char *name, const char *params)
 				goto free_kvlist;
 
 			trace = fopen(str_temp, "rb");
+		}
+
+		if (rte_kvargs_count(kvlist, "slow") == 1) {
+
+			ret = rte_kvargs_process(kvlist,
+					"slow",
+					get_string_arg, str_temp);
+			if (ret < 0)
+				goto free_kvlist;
+			if(strstr(str_temp, "r") != NULL)
+				dev_aux.slow_read = 1;
+			if(strstr(str_temp, "w") != NULL)
+				dev_aux.slow_write = 1;
 		}
 	}
 
